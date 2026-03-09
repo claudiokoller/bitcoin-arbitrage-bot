@@ -1,15 +1,15 @@
 # Bitcoin Arbitrage Bot
 
-Automated Bitcoin arbitrage between centralized exchanges (Kraken) and P2P platforms (Peach Bitcoin).
+Automated Bitcoin arbitrage between centralized exchanges and P2P platforms.
 
-Buy BTC at spot price on Kraken, sell at a premium on Peach P2P — fully automated from offer creation to escrow release.
+Buy BTC at spot price on an exchange, sell at a premium on a P2P marketplace — fully automated from order execution to on-chain escrow release.
 
 **[Interactive Architecture Diagram](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
 
 ## Trade Cycle
 
-1. **Create sell offer** on Peach with dynamic premium (e.g. +6%)
-2. **Buy BTC** on Kraken at spot price
+1. **Create sell offer** on P2P platform with dynamic premium (e.g. +6%)
+2. **Buy BTC** on exchange at spot price
 3. **Fund escrow** — withdraw to hot wallet, then on-chain TX to escrow address
 4. **Match** — auto-accept trade requests with encrypted payment data (PGP)
 5. **Payment** — buyer pays via Twint/SEPA/Revolut/Wise
@@ -20,10 +20,10 @@ Buy BTC at spot price on Kraken, sell at a premium on Peach P2P — fully automa
 
 - **Multi-currency**: CHF, EUR, USD support
 - **Multi-payment**: Twint, SEPA, SEPA Instant, Revolut, Wise
-- **HD escrow keys**: BIP32 derivation matching Peach app (`m/84'/0'/0'/{offerId}'`)
+- **HD escrow keys**: BIP32 derivation per offer (`m/84'/0'/0'/{offerId}'`)
 - **PGP encryption**: Symmetric key exchange for payment data
 - **Auto premium reduction**: Live PATCH on stale offers (no cancel/refund cycle)
-- **Dual fill detection**: Kraken order polling + balance change fallback
+- **Dual fill detection**: Order polling + balance change fallback
 - **Profit tracking**: Full fee breakdown (exchange, withdrawal, funding, platform)
 - **Telegram bot**: Complete remote control with inline keyboards
 - **Market scanner**: Competitive analysis with premium recommendations
@@ -63,8 +63,8 @@ python run.py
 
 See `config.example.json` for all options. Key settings:
 
-- **Kraken**: API key/secret, trading pair, withdrawal key
-- **Peach**: Private key (secp256k1), mnemonic (BIP39), PGP keypair
+- **Exchange**: API key/secret, trading pair, withdrawal key
+- **P2P Platform**: Private key (secp256k1), mnemonic (BIP39), PGP keypair
 - **Payment methods**: Per-currency payment method configuration
 - **Premium**: Base premium, floor, auto-reduction interval
 - **Telegram**: Bot token + chat ID for notifications
@@ -72,10 +72,10 @@ See `config.example.json` for all options. Key settings:
 ## Key Design Decisions
 
 - **v069 API for trade requests**: The v1 matches endpoint often returns empty. The undocumented v069 endpoint reliably returns incoming trade requests.
-- **HD key derivation**: Each offer gets a unique escrow key derived from the mnemonic, matching Peach app's derivation path for compatibility.
+- **HD key derivation**: Each offer gets a unique escrow key derived from the mnemonic, matching the P2P app's derivation path for compatibility.
 - **Live premium PATCH**: Instead of cancelling stale offers (which triggers on-chain refund), premium is reduced via PATCH on the live offer.
-- **Dual fill detection**: Kraken's QueryOrders can be slow. After 15s, the bot also checks balance changes as a fallback to detect filled orders faster.
-- **Buy data preservation**: Actual Kraken buy price is preserved through the full escrow lifecycle for accurate profit calculation.
+- **Dual fill detection**: Exchange order queries can be slow. After 15s, the bot also checks balance changes as a fallback to detect filled orders faster.
+- **Buy data preservation**: Actual exchange buy price is preserved through the full escrow lifecycle for accurate profit calculation.
 
 ## Disclaimer
 
