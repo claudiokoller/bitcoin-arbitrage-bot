@@ -4,7 +4,7 @@ Automated Bitcoin arbitrage between centralized exchanges and P2P platforms.
 
 Buy BTC at spot price on an exchange, sell at a premium on a P2P marketplace — fully automated from order execution to on-chain escrow release.
 
-**[Interactive Architecture Diagram](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
+**[Architecture Diagram](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
 
 ## Trade Cycle
 
