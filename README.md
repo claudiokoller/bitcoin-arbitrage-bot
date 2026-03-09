@@ -79,6 +79,6 @@ See `config.example.json` for all options. Key settings:
 
 ## Disclaimer
 
-This is a showcase of the bot's architecture. Some implementation details (payment data handling, PGP encryption flow, escrow funding) are intentionally omitted. This is not a turnkey solution.
+This bot is actively used in production. Some implementation details (payment data handling, PGP encryption flow, escrow funding) are intentionally omitted from this public repository. This is not a turnkey solution.
 
-Use at your own risk. This software is provided as-is for educational purposes.
+The code is shared for educational purposes and as a portfolio showcase. Use at your own risk.
