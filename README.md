@@ -47,7 +47,7 @@ Buy BTC at spot price on an exchange, sell at a premium on a P2P marketplace —
 │   └── telegram_bot.py    # Telegram notifications + commands
 ├── run.py                 # Entry point
 ├── config.example.json    # Configuration template
-└── architecture-diagram.html  # Interactive architecture diagram
+└── architecture-diagram.html  # Architecture diagram
 ```
 
 ## Setup
