@@ -4,26 +4,7 @@ Automated Bitcoin arbitrage between centralized exchanges (Kraken) and P2P platf
 
 Buy BTC at spot price on Kraken, sell at a premium on Peach P2P — fully automated from offer creation to escrow release.
 
-## Architecture
-
-![Architecture](architecture-diagram.html)
-
-Open `architecture-diagram.html` in a browser for the interactive architecture diagram.
-
-```
-┌─────────────────────────────────────────────────────┐
-│                   Trading Engine                     │
-│                                                      │
-│  ┌──────────┐   ┌──────────┐   ┌──────────────────┐ │
-│  │  Kraken   │   │  Peach   │   │    Telegram Bot   │ │
-│  │ Exchange  │   │ Platform │   │  (Remote Control) │ │
-│  └────┬─────┘   └────┬─────┘   └────────┬─────────┘ │
-│       │              │                   │           │
-│  spot buy      escrow mgmt       /buy_escrow <fiat>  │
-│  withdraw      trade accept      /market /status     │
-│                PSBT signing      /offers /cancel      │
-└─────────────────────────────────────────────────────┘
-```
+**[Interactive Architecture Diagram](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
 
 ## Trade Cycle
 
