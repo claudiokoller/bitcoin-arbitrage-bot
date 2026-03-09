@@ -1,0 +1,42 @@
+{
+    "poll_interval": 30,
+    "daily_volume_limit_usd": 2000.0,
+    "auto_buy_and_fund": true,
+    "auto_confirm_payment": false,
+    "db_path": "trades.db",
+    "exchanges": {
+        "kraken": {
+            "enabled": true,
+            "api_key": "YOUR_KRAKEN_API_KEY",
+            "api_secret": "YOUR_KRAKEN_API_SECRET",
+            "trading_pair": "XBTCHF",
+            "max_buy_fiat": 2500.0,
+            "withdrawal_key": "HotWallet"
+        }
+    },
+    "platforms": {
+        "peach": {
+            "enabled": true,
+            "api_base": "https://api.peachbitcoin.com/v1",
+            "private_key_hex": "YOUR_PEACH_PRIVATE_KEY",
+            "unique_id": "YOUR_PEACH_UNIQUE_ID",
+            "refund_address": "YOUR_BTC_REFUND_ADDRESS",
+            "pgp_public_key": "",
+            "target_premium": 6.0,
+            "min_amount_sats": 50000,
+            "max_amount_sats": 500000,
+            "payment_methods": {
+                "CHF": ["twint", "revolut", "wise"],
+                "EUR": ["sepa", "instantSepa", "revolut", "wise"],
+                "USD": ["revolut", "wise"]
+            },
+            "payment_data_raw": {
+                "twint": "+41XXXXXXXXX",
+                "revolut": "@username",
+                "wise": "@username",
+                "sepa": "CHXXXXXXXXXX",
+                "instantSepa": "DEXXXXXXXXXX"
+            }
+        }
+    }
+}
