@@ -207,7 +207,7 @@
   <div class="flow-section">
     <div class="flow-step">
       <div class="icon">🏦</div>
-      <div class="label">Exchange (Kraken)</div>
+      <div class="label">Exchange</div>
       <div class="value">Market Buy</div>
     </div>
     <div class="flow-arrow">&#10141;</div>
@@ -225,7 +225,7 @@
     <div class="flow-arrow">&#10141;</div>
     <div class="flow-step">
       <div class="icon">🤝</div>
-      <div class="label">P2P Trade (Peach)</div>
+      <div class="label">P2P Trade</div>
       <div class="value">Encrypted Match</div>
     </div>
     <div class="flow-arrow">&#10141;</div>
@@ -261,7 +261,7 @@
         <li><span class="dot"></span>Auto premium reduction via live PATCH (no cancel/refund)</li>
         <li><span class="dot"></span>Refund tracking for cancelled escrows (on-chain monitoring)</li>
         <li><span class="dot"></span>Daily summary, low balance alerts, profit tracking</li>
-        <li><span class="dot"></span>Multi-source spot price (CoinGecko → Kraken fallback)</li>
+        <li><span class="dot"></span>Multi-source spot price with fallback</li>
         <li><span class="dot"></span>Thread-safe concurrent access (engine + Telegram threads)</li>
       </ul>
     </div>
@@ -277,7 +277,7 @@
       <div class="card-header">
         <div class="card-icon">🏦</div>
         <div>
-          <div class="card-title">Kraken Exchange</div>
+          <div class="card-title">Exchange Connector</div>
           <div class="card-subtitle">CHF/EUR/USD spot market buy + withdrawal</div>
         </div>
       </div>
@@ -292,10 +292,10 @@
 
     <div class="card green">
       <div class="card-header">
-        <div class="card-icon">🍑</div>
+        <div class="card-icon">🤝</div>
         <div>
-          <div class="card-title">Peach Bitcoin P2P</div>
-          <div class="card-subtitle">v1 API + undocumented v069 endpoints</div>
+          <div class="card-title">P2P Platform</div>
+          <div class="card-subtitle">Peer-to-peer marketplace integration</div>
         </div>
       </div>
       <ul class="feature-list">
@@ -408,7 +408,7 @@
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Full cycle: Kraken → Offer → Escrow</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Full cycle: Buy → Offer → Escrow</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/market</code> — Competitive analysis + premium recommendation</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/status /balance /offers /contracts</code> — Monitoring</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/cancel /pause /resume</code> — Control with inline keyboards</li>
@@ -478,8 +478,8 @@
       </div>
       <div class="pipe-step">
         <div class="pipe-num">2</div>
-        <div class="pipe-label">Kraken Buy</div>
-        <div class="pipe-detail">Market + viqc</div>
+        <div class="pipe-label">Exchange Buy</div>
+        <div class="pipe-detail">Market order</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">3</div>
@@ -489,7 +489,7 @@
       <div class="pipe-step">
         <div class="pipe-num">4</div>
         <div class="pipe-label">Create Offer</div>
-        <div class="pipe-detail">Peach + hashes</div>
+        <div class="pipe-detail">P2P + hashes</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">5</div>
@@ -586,11 +586,11 @@
     </div>
     <div class="tech-item">
       <div class="t-label">Exchange</div>
-      <div class="t-value">Kraken REST API</div>
+      <div class="t-value">REST API (HMAC-SHA512)</div>
     </div>
     <div class="tech-item">
       <div class="t-label">P2P</div>
-      <div class="t-value">Peach v1 + v069 API</div>
+      <div class="t-value">P2P REST API</div>
     </div>
     <div class="tech-item">
       <div class="t-label">Notifications</div>
