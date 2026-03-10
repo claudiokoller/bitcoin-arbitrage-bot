@@ -1,14 +1,14 @@
 # Bitcoin Arbitrage Bot
 
-Automated Bitcoin arbitrage between centralized exchanges and P2P platforms.
+Semi-automated Bitcoin arbitrage between centralized exchanges and P2P platforms.
 
-Buy BTC at spot price on an exchange, sell at a premium on a P2P marketplace — fully automated from order execution to on-chain escrow release.
+Buy BTC at spot price on an exchange, sell at a premium on a P2P marketplace. Offer creation and premium setting are done manually — trade matching, payment handling, and escrow release are automated.
 
 **[Architecture Diagram](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
 
 ## Trade Cycle
 
-1. **Create sell offer** on P2P platform with dynamic premium (e.g. +6%)
+1. **Create sell offer** on P2P platform with manual premium (e.g. +6%)
 2. **Buy BTC** on exchange at spot price
 3. **Fund escrow** — withdraw to hot wallet, then on-chain TX to escrow address
 4. **Match** — auto-accept trade requests with encrypted payment data (PGP)
