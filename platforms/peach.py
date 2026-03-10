@@ -231,9 +231,9 @@ class PeachPlatform(PlatformBase):
     # --- CONTRACTS ---
 
     def get_contracts(self):
-        r = self._api_call("GET", f"{self.base_url}/contracts/summary")
+        r = self._api_call("GET", f"{self.base_url}/contracts/summary", timeout=10)
         contracts = []
-        status_map = {
+        sm = {
             "paymentRequired": OfferStatus.MATCHED,
             "paymentMade": OfferStatus.PAYMENT_RECEIVED,
             "confirmPaymentRequired": OfferStatus.PAYMENT_RECEIVED,
@@ -242,16 +242,26 @@ class PeachPlatform(PlatformBase):
             "tradeCompleted": OfferStatus.COMPLETED,
         }
         for c in r.json():
+            contract_id = c.get("id", c.get("contractId", ""))
+            payment_method = c.get("paymentMethod", "")
+            # Summary endpoint lacks paymentMethod - fetch from detail if missing
+            if not payment_method and contract_id:
+                try:
+                    detail = self._api_call("GET", f"{self.base_url}/contract/{contract_id}", timeout=10)
+                    d = detail.json()
+                    payment_method = d.get("paymentMethod", "")
+                except Exception:
+                    pass
             status_str = c.get("tradeStatus", c.get("status", ""))
             contracts.append(Contract(
-                id=c.get("id", c.get("contractId", "")),
+                id=contract_id,
                 offer_id=c.get("offerId", ""),
                 platform=Platform.PEACH,
-                status=status_map.get(status_str, OfferStatus.MATCHED),
+                status=sm.get(status_str, OfferStatus.MATCHED),
                 amount_sats=c.get("amount", 0),
                 price_fiat=c.get("price", 0),
                 currency=c.get("currency", "EUR"),
-                payment_method=c.get("paymentMethod", ""),
+                payment_method=payment_method,
                 raw_data=c
             ))
         return contracts
