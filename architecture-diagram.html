@@ -259,7 +259,7 @@
         <li><span class="dot"></span>Auto-accept trade requests with PGP-encrypted payment data</li>
         <li><span class="dot"></span>Contract monitoring with PSBT signing</li>
         <li><span class="dot"></span>Auto premium reduction via live PATCH (no cancel/refund)</li>
-        <li><span class="dot"></span>Refund tracking for cancelled escrows (on-chain monitoring)</li>
+        <li><span class="dot"></span>Auto-refund: sign &amp; broadcast cancelled escrow PSBTs every 10min</li>
         <li><span class="dot"></span>Daily summary, low balance alerts, profit tracking</li>
         <li><span class="dot"></span>Multi-source spot price with fallback</li>
         <li><span class="dot"></span>Thread-safe concurrent access (engine + Telegram threads)</li>
@@ -305,6 +305,22 @@
         <li><span class="dot"></span>AES symmetric key exchange + PGP encryption</li>
         <li><span class="dot"></span>Live premium PATCH on active offers</li>
         <li><span class="dot"></span>Market scanner: competitor + buyer demand analysis</li>
+      </ul>
+    </div>
+
+    <div class="card purple">
+      <div class="card-header">
+        <div class="card-icon">💸</div>
+        <div>
+          <div class="card-title">Wise Forwarder</div>
+          <div class="card-subtitle">Auto-forward incoming EUR/CHF to exchange</div>
+        </div>
+      </div>
+      <ul class="feature-list">
+        <li><span class="dot"></span>Balance polling every 30s via Wise API</li>
+        <li><span class="dot"></span>Auto-create transfer drafts (EUR → Kraken, CHF → bank)</li>
+        <li><span class="dot"></span>Telegram notification with Wise app deep link</li>
+        <li><span class="dot"></span>One-tap confirmation in Wise app (PSD2 compliant)</li>
       </ul>
     </div>
 
