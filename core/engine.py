@@ -28,10 +28,18 @@ class SpotPriceProvider:
 
     @staticmethod
     def _get_cached(currency, max_age=300):
-        """Return cached price if fresh enough (default 5min), else None."""
+        """Return cached price if fresh enough (default 5min), else None.
+        Hard limit: reject cache older than 30min to prevent stale-price trades."""
+        HARD_MAX_AGE = 1800  # 30 minutes absolute maximum
         entry = SpotPriceProvider._cache.get(currency)
-        if entry and (time.time() - entry[1]) < max_age:
-            log.warning(f"Using cached {currency} spot price ({time.time() - entry[1]:.0f}s old)")
+        if not entry:
+            return None
+        age = time.time() - entry[1]
+        if age > HARD_MAX_AGE:
+            log.error(f"Cached {currency} spot price too old ({age:.0f}s), rejecting")
+            return None
+        if age < max_age:
+            log.warning(f"Using cached {currency} spot price ({age:.0f}s old)")
             return entry[0]
         return None
 
@@ -121,9 +129,24 @@ class TradingEngine:
                 log.error(f"Tick error: {e}")
             time.sleep(self.poll_interval)
 
+    def _prune_tracking_sets(self):
+        """Prevent unbounded growth of tracking sets."""
+        for s, label in ((self._notified_contracts, "_notified_contracts"),
+                         (self._recorded_contracts, "_recorded_contracts")):
+            if len(s) > 200:
+                sorted_ids = sorted(s)
+                to_remove = sorted_ids[:-100]
+                s -= set(to_remove)
+                log.debug(f"Pruned {label}: {len(to_remove)} old entries removed")
+
     def _tick(self):
+        tick_start = time.time()
         for name, platform in self.platforms.items():
             self._process_platform(name, platform)
+        self._prune_tracking_sets()
+        tick_duration = time.time() - tick_start
+        if tick_duration > self.poll_interval:
+            log.warning(f"Tick took {tick_duration:.1f}s (> {self.poll_interval}s poll interval)")
 
     def _process_platform(self, name, platform):
         """Single platform processing cycle (~30s interval)."""
@@ -275,11 +298,29 @@ class TradingEngine:
 
     def _check_stale_offers(self, name, platform):
         """Reduce premium on funded offers without match after X hours.
-        Uses PATCH API to update premium directly on live offers."""
+        Uses PATCH API to update premium directly on live offers.
+        Also cleans up very old pending_escrows entries (>7 days)."""
         now = datetime.now()
         if self._last_stale_check and (now - self._last_stale_check).total_seconds() < 600:
             return
         self._last_stale_check = now
+
+        # Clean up stale pending_escrows (older than 7 days)
+        MAX_ESCROW_AGE_DAYS = 7
+        with self._escrow_lock:
+            stale_ids = []
+            for oid, info in self.pending_escrows.items():
+                funded_at = info.get("funded_at")
+                if funded_at:
+                    try:
+                        age_days = (now - datetime.fromisoformat(funded_at)).total_seconds() / 86400
+                        if age_days > MAX_ESCROW_AGE_DAYS:
+                            stale_ids.append(oid)
+                    except Exception:
+                        pass
+            for oid in stale_ids:
+                self.pending_escrows.pop(oid, None)
+                log.info(f"{name}: removed stale pending_escrow {oid[:12]} (>7 days old)")
 
         pconfig = self.config.get("platforms", {}).get(name, {})
         reduction_hours = pconfig.get("premium_reduction_hours", 24)
