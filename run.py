@@ -11,8 +11,9 @@ def build_exchanges(config):
     exs = []
     for name, ecfg in config.get("exchanges",{}).items():
         if not ecfg.get("enabled",False): continue
-        if name == "kraken":
+        if name.startswith("kraken"):
             from exchanges.kraken import KrakenExchange
+            ecfg.setdefault("name", name)
             exs.append(KrakenExchange(ecfg))
     return exs
 

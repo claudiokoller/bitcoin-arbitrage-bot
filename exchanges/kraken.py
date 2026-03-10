@@ -14,9 +14,9 @@ log = logging.getLogger("bot.kraken")
 
 
 class KrakenExchange(ExchangeBase):
-    name = "kraken"
 
     def __init__(self, config):
+        self.name = config.get("name", "kraken")
         self.api_key = config.get("api_key", "")
         self.api_secret = config.get("api_secret", "")
         self.trading_pair = config.get("trading_pair", "XXBTZEUR")

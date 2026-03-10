@@ -5,11 +5,19 @@
     "auto_confirm_payment": false,
     "db_path": "trades.db",
     "exchanges": {
-        "kraken": {
+        "kraken_chf": {
             "enabled": true,
             "api_key": "YOUR_KRAKEN_API_KEY",
             "api_secret": "YOUR_KRAKEN_API_SECRET",
             "trading_pair": "XBTCHF",
+            "max_buy_fiat": 2500.0,
+            "withdrawal_key": "HotWallet"
+        },
+        "kraken_eur": {
+            "enabled": false,
+            "api_key": "YOUR_KRAKEN_API_KEY",
+            "api_secret": "YOUR_KRAKEN_API_SECRET",
+            "trading_pair": "XXBTZEUR",
             "max_buy_fiat": 2500.0,
             "withdrawal_key": "HotWallet"
         }

@@ -441,6 +441,13 @@ class TradingEngine:
                 pass
         return best
 
+    def get_exchange_by_currency(self, currency):
+        """Get exchange instance that trades in the given fiat currency."""
+        for ex in self.exchanges.values():
+            if hasattr(ex, 'get_fiat_currency') and ex.get_fiat_currency() == currency:
+                return ex
+        return None
+
     def get_status(self):
         uptime = datetime.now() - self._start_time
         h, m = divmod(int(uptime.total_seconds()) // 60, 60)
