@@ -174,12 +174,16 @@ class TradingEngine:
                         status = funding.get("status", "") if isinstance(funding, dict) else str(funding)
                         if status not in ("FUNDED", "MEMPOOL"):
                             continue
+                        # Use real creation date from API (not now()) so premium reduction timer is accurate
+                        real_date = offer.raw_data.get("publishingDate") or offer.raw_data.get("creationDate") or datetime.now().isoformat()
+                        if real_date.endswith("Z"):
+                            real_date = real_date.replace("Z", "+00:00")
                         self.pending_escrows[offer.id] = {
                             "platform": name,
                             "escrow_address": escrow_info.get("escrow", ""),
                             "amount_sats": offer.max_sats,
                             "funded": True,
-                            "funded_at": datetime.now().isoformat(),
+                            "funded_at": real_date,
                             "premium": offer.premium_pct,
                         }
                         log.info(f"{name}: synced offer {offer.id}")
@@ -296,6 +300,15 @@ class TradingEngine:
 
     # ── Premium Auto-Reduction ────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_funded_at(funded_at_str):
+        """Parse funded_at string to naive local datetime (handles both UTC ISO and local)."""
+        dt = datetime.fromisoformat(funded_at_str)
+        if dt.tzinfo is not None:
+            utc_ts = dt.timestamp()
+            dt = datetime.fromtimestamp(utc_ts)
+        return dt
+
     def _check_stale_offers(self, name, platform):
         """Reduce premium on funded offers without match after X hours.
         Uses PATCH API to update premium directly on live offers.
@@ -313,7 +326,7 @@ class TradingEngine:
                 funded_at = info.get("funded_at")
                 if funded_at:
                     try:
-                        age_days = (now - datetime.fromisoformat(funded_at)).total_seconds() / 86400
+                        age_days = (now - self._parse_funded_at(funded_at)).total_seconds() / 86400
                         if age_days > MAX_ESCROW_AGE_DAYS:
                             stale_ids.append(oid)
                     except Exception:
@@ -333,7 +346,7 @@ class TradingEngine:
 
         for oid, info in funded.items():
             try:
-                funded_at = datetime.fromisoformat(info["funded_at"])
+                funded_at = self._parse_funded_at(info["funded_at"])
                 hours_waiting = (now - funded_at).total_seconds() / 3600
                 if hours_waiting < reduction_hours:
                     continue
