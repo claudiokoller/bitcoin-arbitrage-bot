@@ -36,6 +36,14 @@
                 "wise": "@username",
                 "sepa": "CHXXXXXXXXXX",
                 "instantSepa": "DEXXXXXXXXXX"
+            },
+            "payment_data_info": {
+                "beneficiary": "Your Name",
+                "twint": {"phone": "+41XXXXXXXXX"},
+                "revolut": {"userName": "@username", "reference": ""},
+                "wise": {"userName": "@username", "reference": ""},
+                "sepa": {"iban": "CHXXXXXXXXXX", "beneficiary": "Your Name", "bic": "XXXXXXXX"},
+                "instantSepa": {"iban": "DEXXXXXXXXXX", "beneficiary": "Your Name", "bic": "XXXXXXXX"}
             }
         }
     }
