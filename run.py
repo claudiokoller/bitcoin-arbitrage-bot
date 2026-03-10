@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json, logging, os, sys, time
+import json, logging, os, signal, sys, time
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("bot")
 
@@ -25,12 +25,32 @@ def build_platforms(config):
             ps.append(PeachPlatform(pcfg))
     return ps
 
+def validate_config(config):
+    """Fail fast on missing critical config fields."""
+    errors = []
+    for name, pcfg in config.get("platforms", {}).items():
+        if not pcfg.get("enabled"): continue
+        for field in ("private_key_hex", "refund_address"):
+            if not pcfg.get(field):
+                errors.append(f"platforms.{name}.{field} missing")
+        if not pcfg.get("payment_data_raw"):
+            errors.append(f"platforms.{name}.payment_data_raw missing")
+    for name, ecfg in config.get("exchanges", {}).items():
+        if not ecfg.get("enabled"): continue
+        for field in ("api_key", "api_secret"):
+            if not ecfg.get(field) or ecfg[field].startswith("YOUR_"):
+                errors.append(f"exchanges.{name}.{field} missing or placeholder")
+    if errors:
+        for e in errors: log.error(f"Config: {e}")
+        sys.exit(1)
+
 def main():
     mode = "full"
     if "--telegram" in sys.argv: mode = "telegram"
     elif "--status" in sys.argv: mode = "status"
     print("\n  Trading Bot v3.0\n")
     config = load_config()
+    validate_config(config)
     if mode == "telegram":
         tg = config.get("telegram",{})
         if not tg.get("token"): log.error("No telegram token"); sys.exit(1)
@@ -58,6 +78,13 @@ def main():
         time.sleep(2)
         if tg.get("chat_id"):
             tb.notifier._send(f"<b>Bot gestartet</b>\n{', '.join(engine.platforms.keys())}\n/status")
+    # Graceful shutdown on SIGTERM (systemd stop)
+    def _shutdown(signum, frame):
+        log.info(f"Received signal {signum}, shutting down...")
+        engine.paused = True
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
     engine.start()
 
 if __name__ == "__main__": main()

@@ -18,12 +18,27 @@ log = logging.getLogger("bot.engine")
 
 
 class SpotPriceProvider:
-    """Multi-source BTC spot price provider with fallback chain."""
+    """Multi-source BTC spot price provider with fallback chain and cache."""
+    _cache = {}  # {currency: (price, timestamp)} — fallback if all sources fail
+
+    @staticmethod
+    def _cached(currency, price):
+        SpotPriceProvider._cache[currency] = (price, time.time())
+        return price
+
+    @staticmethod
+    def _get_cached(currency, max_age=300):
+        """Return cached price if fresh enough (default 5min), else None."""
+        entry = SpotPriceProvider._cache.get(currency)
+        if entry and (time.time() - entry[1]) < max_age:
+            log.warning(f"Using cached {currency} spot price ({time.time() - entry[1]:.0f}s old)")
+            return entry[0]
+        return None
 
     @staticmethod
     def get_spot(currency="EUR"):
         """Fetch current BTC spot price in given currency.
-        Falls back through multiple APIs: CoinGecko → Kraken."""
+        Falls back through multiple APIs: CoinGecko → Kraken → cache."""
         import requests
         providers = {
             "EUR": [
@@ -39,11 +54,14 @@ class SpotPriceProvider:
                 r.raise_for_status()
                 data = r.json()
                 if "bitcoin" in data:
-                    return data["bitcoin"][currency.lower()]
+                    return SpotPriceProvider._cached(currency, data["bitcoin"][currency.lower()])
                 for v in data.get("result", {}).values():
-                    return float(v["c"][0])
+                    return SpotPriceProvider._cached(currency, float(v["c"][0]))
             except Exception:
                 continue
+        cached = SpotPriceProvider._get_cached(currency)
+        if cached:
+            return cached
         raise ValueError(f"Cannot fetch {currency} spot price")
 
 
@@ -239,6 +257,10 @@ class TradingEngine:
                     removed = self.pending_escrows.pop(offer_id, None)
                     if removed and removed.get("buy_data"):
                         self._buy_data_cache[offer_id] = removed["buy_data"]
+                        # Prevent unbounded cache growth
+                        if len(self._buy_data_cache) > 50:
+                            oldest = list(self._buy_data_cache.keys())[0]
+                            self._buy_data_cache.pop(oldest, None)
 
             if c.status == OfferStatus.PAYMENT_RECEIVED:
                 if c.id not in self._notified_contracts:
@@ -275,8 +297,8 @@ class TradingEngine:
                 if hours_waiting < reduction_hours:
                     continue
                 current = info.get("premium", 6.0)
-                new_premium = round(current - reduction_step, 1)
-                if new_premium < floor:
+                new_premium = max(round(current - reduction_step, 1), floor)
+                if new_premium >= current:
                     continue
 
                 if hasattr(platform, "update_premium") and platform.update_premium(oid, new_premium):
