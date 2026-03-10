@@ -151,7 +151,7 @@ class TradingEngine:
         """Buy BTC on exchange and withdraw to escrow address."""
         with self._escrow_lock:
             to_fund = {oid: info for oid, info in self.pending_escrows.items()
-                       if info["platform"] == name and not info.get("funded")}
+                       if info["platform"] == name and not info.get("funded") and not info.get("funding_in_progress")}
         if not to_fund:
             return
         exchange = self._get_best_exchange()
@@ -204,7 +204,8 @@ class TradingEngine:
                     self.notifier.notify_match(oid, buyer_id)
             except Exception as e:
                 log.warning(f"{name}: match check {oid[:12]}: {e}")
-                if "401" in str(e):
+                # Only remove on 401 if already funded (unfunded offers get 401 normally)
+                if "401" in str(e) and info.get("funded"):
                     self._contracted_offers.add(oid)
                     with self._escrow_lock:
                         self.pending_escrows.pop(oid, None)
