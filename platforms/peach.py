@@ -276,14 +276,12 @@ class PeachPlatform(PlatformBase):
                 "CHF": ["twint", "revolut", "wise"],
                 "EUR": ["sepa", "instantSepa", "revolut", "wise"],
             }
-        self._ensure_auth()
         all_offers = {}
         for currency in currencies:
             for method in payment_methods.get(currency, []):
                 try:
-                    r = self.session.get(f"{self.base_url_v069}/sellOffer",
-                        params={"currency": currency, "paymentMethod": method}, timeout=10)
-                    r.raise_for_status()
+                    r = self._api_call("GET", f"{self.base_url_v069}/sellOffer",
+                        params={"currency": currency, "paymentMethod": method})
                     data = r.json()
                     raw = data.get("offers", data) if isinstance(data, dict) else data
                     for o in raw:

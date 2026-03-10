@@ -222,6 +222,10 @@ class TradingEngine:
 
     def _check_contracts(self, name, platform):
         """Monitor contract lifecycle: payment → confirmation → completion."""
+        # Prune _contracted_offers to prevent unbounded growth
+        if len(self._contracted_offers) > 100:
+            sorted_ids = sorted(self._contracted_offers, key=lambda x: int(x) if x.isdigit() else 0)
+            self._contracted_offers = set(sorted_ids[-50:])
         try:
             contracts = platform.get_contracts()
         except Exception:
