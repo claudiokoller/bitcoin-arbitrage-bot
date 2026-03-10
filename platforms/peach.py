@@ -76,12 +76,15 @@ class PeachPlatform(PlatformBase):
             self.authenticate()
 
     def _api_call(self, method, url, **kwargs):
-        """API call with automatic 401 retry (re-auth + retry once)."""
+        """API call with automatic 401 retry and 5xx backoff."""
         self._ensure_auth()
         kwargs.setdefault("timeout", 15)
         r = self.session.request(method, url, **kwargs)
         if r.status_code == 401:
             self.authenticate()
+            r = self.session.request(method, url, **kwargs)
+        if r.status_code >= 500:
+            time.sleep(2)
             r = self.session.request(method, url, **kwargs)
         r.raise_for_status()
         return r
@@ -240,6 +243,10 @@ class PeachPlatform(PlatformBase):
             "released": OfferStatus.COMPLETED,
             "dispute": OfferStatus.DISPUTE,
             "tradeCompleted": OfferStatus.COMPLETED,
+            "tradeCanceled": OfferStatus.CANCELLED,
+            "canceledAfterPayment": OfferStatus.CANCELLED,
+            "refundTxSignatureRequired": OfferStatus.CANCELLED,
+            "refundOrReviveRequired": OfferStatus.CANCELLED,
         }
         for c in r.json():
             contract_id = c.get("id", c.get("contractId", ""))
