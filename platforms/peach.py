@@ -136,7 +136,6 @@ class PeachPlatform(PlatformBase):
 
     def create_escrow(self, offer_id, public_key_hex=None):
         """Create escrow with HD-derived per-offer key."""
-        self._ensure_auth()
         if not public_key_hex:
             from coincurve import PrivateKey
             escrow_hex = self._get_escrow_privkey_hex(offer_id)
@@ -144,9 +143,8 @@ class PeachPlatform(PlatformBase):
             public_key_hex = escrow_privkey.public_key.format(compressed=True).hex()
             self.escrow_keys[str(offer_id)] = escrow_hex
 
-        r = self.session.post(f"{self.base_url}/offer/{offer_id}/escrow",
-            json={"publicKey": public_key_hex}, timeout=15)
-        r.raise_for_status()
+        r = self._api_call("POST", f"{self.base_url}/offer/{offer_id}/escrow",
+            json={"publicKey": public_key_hex})
         data = r.json()
 
         escrow_addr = ""
@@ -194,14 +192,14 @@ class PeachPlatform(PlatformBase):
 
     def update_premium(self, offer_id, new_premium):
         """PATCH live offer premium. Only works on online=True offers."""
-        self._ensure_auth()
-        r = self.session.patch(f"{self.base_url}/offer/{offer_id}",
-            json={"premium": new_premium}, timeout=10)
-        if r.status_code == 200:
+        try:
+            self._api_call("PATCH", f"{self.base_url}/offer/{offer_id}",
+                json={"premium": new_premium})
             log.info(f"Peach: updated {offer_id} premium to {new_premium}%")
             return True
-        log.warning(f"Peach: PATCH {offer_id}: {r.status_code}")
-        return False
+        except Exception as e:
+            log.warning(f"Peach: PATCH {offer_id}: {e}")
+            return False
 
     # --- TRADE REQUESTS (v069) ---
 
