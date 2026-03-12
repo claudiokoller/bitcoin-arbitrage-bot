@@ -39,6 +39,7 @@ class PeachPlatform(PlatformBase):
         self.access_token = None
         self._auth_time = 0
         self.escrow_keys = {}
+        self._contract_method_cache = {}  # {contract_id: payment_method}
 
     def _get_escrow_privkey_hex(self, offer_id) -> str:
         """Derive per-offer escrow key: m/84'/0'/0'/{offerId}' (matching Peach app)."""
@@ -251,14 +252,18 @@ class PeachPlatform(PlatformBase):
         for c in r.json():
             contract_id = c.get("id", c.get("contractId", ""))
             payment_method = c.get("paymentMethod", "")
-            # Summary endpoint lacks paymentMethod - fetch from detail if missing
+            # Summary endpoint lacks paymentMethod - use cache or fetch once
             if not payment_method and contract_id:
-                try:
-                    detail = self._api_call("GET", f"{self.base_url}/contract/{contract_id}", timeout=10)
-                    d = detail.json()
-                    payment_method = d.get("paymentMethod", "")
-                except Exception:
-                    pass
+                payment_method = self._contract_method_cache.get(contract_id, "")
+                if not payment_method:
+                    try:
+                        detail = self._api_call("GET", f"{self.base_url}/contract/{contract_id}", timeout=10)
+                        d = detail.json()
+                        payment_method = d.get("paymentMethod", "")
+                        if payment_method:
+                            self._contract_method_cache[contract_id] = payment_method
+                    except Exception:
+                        pass
             status_str = c.get("tradeStatus", c.get("status", ""))
             contracts.append(Contract(
                 id=contract_id,
@@ -278,9 +283,55 @@ class PeachPlatform(PlatformBase):
 
         PSBT signing requires the correct escrow key (HD-derived or account key).
         Auto-detects correct key from PSBT witness_script.
+        Raises RuntimeError if PSBT signing fails (prevents silent failures).
+        Uses _api_call for automatic 401 retry.
         Implementation omitted - see release_escrow.py.
         """
         raise NotImplementedError("PSBT signing - see private repo")
+
+    def get_contract_detail(self, contract_id):
+        """Get full contract details including PSBT for release signing."""
+        r = self._api_call("GET", f"{self.base_url}/contract/{contract_id}")
+        return r.json()
+
+    def release_escrow(self, contract_id, signed_tx_hex):
+        """Release escrow by submitting the fully signed transaction."""
+        r = self._api_call("POST", f"{self.base_url}/contract/{contract_id}/payment/confirm", json={
+            "releaseTransaction": signed_tx_hex
+        }, timeout=15)
+        data = r.json()
+        log.info(f"Peach: Escrow released for {contract_id}")
+        return data
+
+    def get_offer(self, offer_id):
+        """Get single offer details."""
+        r = self._api_call("GET", f"{self.base_url}/offer/{offer_id}")
+        return r.json()
+
+    def scan_buy_offers(self, currencies=None, payment_methods=None):
+        """Scan Peach market for buyer demand via v069 API."""
+        if currencies is None:
+            currencies = ["CHF", "EUR"]
+        if payment_methods is None:
+            payment_methods = {
+                "CHF": ["twint", "revolut", "wise"],
+                "EUR": ["sepa", "instantSepa", "revolut", "wise"],
+            }
+        all_offers = {}
+        for currency in currencies:
+            for method in payment_methods.get(currency, []):
+                try:
+                    r = self._api_call("GET", f"{self.base_url_v069}/buyOffer",
+                        params={"currency": currency, "paymentMethod": method})
+                    data = r.json()
+                    raw = data.get("offers", data) if isinstance(data, dict) else data
+                    for o in raw:
+                        oid = str(o.get("id", ""))
+                        if oid and oid not in all_offers:
+                            all_offers[oid] = o
+                except Exception as e:
+                    log.debug(f"Scan buy {currency}/{method}: {e}")
+        return list(all_offers.values())
 
     # --- MARKET SCANNER ---
 
@@ -312,6 +363,22 @@ class PeachPlatform(PlatformBase):
     def get_platform_fee_pct(self):
         return 2.0  # Peach charges 2% to the buyer
 
+    def get_status(self):
+        try:
+            self._ensure_auth()
+            r = self.session.get(f"{self.base_url}/user/me", timeout=10)
+            r.raise_for_status()
+            u = r.json()
+            return {
+                "name": self.name,
+                "escrow_type": self.escrow_type,
+                "online": True,
+                "trades": u.get("trades", 0),
+                "rating": u.get("rating", "?")
+            }
+        except Exception as e:
+            return {"name": self.name, "online": False, "error": str(e)}
+
 
 # --- PAYMENT HASH HELPERS ---
 
@@ -324,3 +391,11 @@ def make_payment_hash(raw_data: str) -> str:
         Revolut:  sha256(json.dumps({"userName": "@user", "reference": ""}))
     """
     return hashlib.sha256(raw_data.encode()).hexdigest()
+
+
+def make_payment_data(method: str, raw_data: str) -> dict:
+    """Create paymentData dict for offer creation.
+
+    Returns: {"twint": {"hashes": ["4097dcdb..."]}}
+    """
+    return {method: {"hashes": [make_payment_hash(raw_data)]}}

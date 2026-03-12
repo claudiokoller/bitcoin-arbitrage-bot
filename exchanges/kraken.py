@@ -180,18 +180,38 @@ class KrakenExchange(ExchangeBase):
                 try:
                     btc_now = self.get_btc_balance()
                     if btc_now > btc_before + 0.000001:
-                        trades = self.get_trade_history(days=1)
-                        if trades:
-                            t = trades[0]
-                            return {
-                                "status": "closed",
-                                "vol_exec": str(t["vol"]),
-                                "cost": str(t["cost"]),
-                                "fee": str(t["fee"]),
-                                "price": str(t["price"])
-                            }
-                except Exception:
-                    pass
+                        diff = btc_now - btc_before
+                        log.info(f"Balance changed! +{diff:.8f} BTC — Order filled after {elapsed}s")
+                        # Get trade details from TradesHistory
+                        try:
+                            trades = self.get_trade_history(days=1)
+                            if trades:
+                                t = trades[0]
+                                return {
+                                    "status": "closed",
+                                    "vol_exec": str(t["vol"]),
+                                    "cost": str(t["cost"]),
+                                    "fee": str(t["fee"]),
+                                    "price": str(t["price"])
+                                }
+                        except Exception as e:
+                            log.debug(f"TradesHistory fallback: {e}")
+                        # Fallback: estimate cost from spot price
+                        try:
+                            spot = self.get_spot_price()
+                            est_cost = diff * spot
+                        except Exception:
+                            spot, est_cost = 0, 0
+                        log.warning(f"Using balance-diff fallback: {diff:.8f} BTC, est. cost {est_cost:.2f}")
+                        return {
+                            "status": "closed",
+                            "vol_exec": str(diff),
+                            "cost": str(round(est_cost, 2)),
+                            "fee": "0",
+                            "price": str(round(spot, 2))
+                        }
+                except Exception as e:
+                    log.debug(f"Balance check fallback: {e}")
 
             time.sleep(5)
         raise TimeoutError(f"Order {txid} not filled in {timeout}s")

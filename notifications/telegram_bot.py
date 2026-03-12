@@ -33,10 +33,11 @@ class TelegramNotifier:
     def _send(self, text):
         if not self._app or not self._loop:
             return
-        asyncio.run_coroutine_threadsafe(
+        future = asyncio.run_coroutine_threadsafe(
             self._app.bot.send_message(chat_id=self.chat_id, text=text, parse_mode="HTML"),
             self._loop
         )
+        future.add_done_callback(lambda f: f.exception() and log.warning(f"Telegram send failed: {f.exception()}"))
 
     def notify_offer_created(self, oid, prem, rng):
         self._send(f"<b>Offer</b>\n<code>{oid[:16]}</code> | {prem}% | {rng[0]:,}-{rng[1]:,} sats")
@@ -46,6 +47,9 @@ class TelegramNotifier:
 
     def notify_match(self, oid, mid):
         self._send(f"<b>MATCH!</b>\n<code>{oid[:16]}</code>")
+
+    def notify_dispute(self, cid):
+        self._send(f"<b>DISPUTE!</b> <code>{cid[:16]}</code>")
 
     def notify_error(self, err):
         self._send(f"<b>Error</b>\n<code>{err[:400]}</code>")

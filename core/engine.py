@@ -9,7 +9,7 @@ Manages the full arbitrage cycle:
   5. Auto-reduce premium on stale offers (PATCH live offers)
   6. Track profit per trade with full fee breakdown
 """
-import json, logging, threading, time
+import json, logging, os, threading, time
 from datetime import datetime
 from core.models import SellOffer, OfferStatus, Platform, Exchange, TradeResult
 from core.trade_logger import TradeLogger
@@ -84,9 +84,13 @@ class TradingEngine:
         self.pending_escrows = {}          # {offer_id: {platform, escrow_address, amount_sats, funded, funded_at, premium, buy_data}}
         self._escrow_lock = threading.Lock()
         self._contracted_offers = set()    # Offer IDs with active contracts
+        self._contracted_offers_file = os.path.join(os.path.dirname(__file__), "..", "contracted_offers.json")
+        self._load_contracted_offers()
+        self._contracted_offers_snapshot = set(self._contracted_offers)
         self._buy_data_cache = {}          # Preserved buy_data after offer removed from pending_escrows
         self._recorded_contracts = set()
         self._notified_contracts = set()
+        self._low_balance_warned = {}      # {exchange_name: bool} — per-exchange warning state
         self.daily_volume_sats = 0
         self.paused = False
         self.poll_interval = config.get("poll_interval", 30)
@@ -95,10 +99,15 @@ class TradingEngine:
 
         # Premium auto-reduction
         self._last_stale_check = None
+        self._escrow_state_file = os.path.join(os.path.dirname(__file__), "..", "escrow_state.json")
+        self._escrow_state = self._load_escrow_state()
 
         # Refund monitoring
         self._pending_refunds = {}
         self._last_refund_check = None
+
+        # Cache active offers to avoid redundant API calls
+        self._cached_active_offers = {}
 
         self._start_time = datetime.now()
 
@@ -139,10 +148,31 @@ class TradingEngine:
                 s -= set(to_remove)
                 log.debug(f"Pruned {label}: {len(to_remove)} old entries removed")
 
+    def _check_low_balance(self):
+        now = datetime.now()
+        if now.minute not in (0, 1): return  # check at top of hour
+        for ex in self.exchanges.values():
+            try:
+                fiat = ex.get_fiat_balance()
+                threshold = self.config.get("low_balance_threshold", 50)
+                ex_name = ex.name if hasattr(ex, 'name') else str(ex)
+                if fiat < threshold and not self._low_balance_warned.get(ex_name):
+                    self._low_balance_warned[ex_name] = True
+                    if self.notifier:
+                        currency = ex.get_fiat_currency() if hasattr(ex, 'get_fiat_currency') else 'EUR'
+                        self.notifier.notify_low_balance(fiat, currency)
+                        log.warning(f"Low balance {ex_name}: {fiat:.2f} {currency}")
+                elif fiat >= threshold:
+                    self._low_balance_warned[ex_name] = False
+            except Exception:
+                pass
+
     def _tick(self):
         tick_start = time.time()
         for name, platform in self.platforms.items():
-            self._process_platform(name, platform)
+            try: self._process_platform(name, platform)
+            except Exception as e: log.error(f"{name}: {e}")
+        self._check_low_balance()
         self._prune_tracking_sets()
         tick_duration = time.time() - tick_start
         if tick_duration > self.poll_interval:
@@ -150,41 +180,58 @@ class TradingEngine:
 
     def _process_platform(self, name, platform):
         """Single platform processing cycle (~30s interval)."""
+        # Quick health check: if auth fails, skip entire platform this tick
+        try:
+            platform._ensure_auth()
+        except Exception as e:
+            log.warning(f"{name}: auth failed, skipping tick: {e}")
+            return
         self._sync_funded_offers(name, platform)
         if self.auto_fund:
             self._fund_escrows(name, platform)
+        self._check_contracts(name, platform)  # Before matches: identify contracted offers first
         self._check_trade_requests(name, platform)
-        self._check_contracts(name, platform)
         self._check_stale_offers(name, platform)
 
     # ── Offer Sync ────────────────────────────────────────────────────────
 
     def _sync_funded_offers(self, name, platform):
-        """Sync FUNDED offers into pending_escrows (e.g. after restart)."""
+        """Sync FUNDED offers into pending_escrows (e.g. after restart).
+        Also re-activates contracted offers that are still FUNDED (not yet released)."""
         try:
             active = platform.get_active_offers()
         except Exception:
             return
+        # Cache for reuse by other methods (avoids redundant API calls)
+        self._cached_active_offers[name] = active
         for offer in active:
             with self._escrow_lock:
-                if offer.id not in self.pending_escrows and offer.id not in self._contracted_offers:
+                if offer.id not in self.pending_escrows:
                     try:
                         escrow_info = platform.get_escrow_status(offer.id)
                         funding = escrow_info.get("funding", {})
                         status = funding.get("status", "") if isinstance(funding, dict) else str(funding)
                         if status not in ("FUNDED", "MEMPOOL"):
                             continue
-                        # Use real creation date from API (not now()) so premium reduction timer is accurate
-                        real_date = offer.raw_data.get("publishingDate") or offer.raw_data.get("creationDate") or datetime.now().isoformat()
-                        if real_date.endswith("Z"):
-                            real_date = real_date.replace("Z", "+00:00")
+                        # Use saved state (from premium reduction timer) if available, else real API date
+                        saved = self._escrow_state.get(str(offer.id), {})
+                        if saved.get("funded_at"):
+                            funded_at = saved["funded_at"]
+                        else:
+                            real_date = offer.raw_data.get("publishingDate") or offer.raw_data.get("creationDate") or datetime.now().isoformat()
+                            funded_at = real_date.replace("Z", "+00:00") if real_date.endswith("Z") else real_date
+                        # Re-add funded offers even if previously in _contracted_offers
+                        if offer.id in self._contracted_offers:
+                            self._contracted_offers.discard(offer.id)
+                            self._save_contracted_offers()
+                            log.info(f"{name}: re-activated contracted offer {offer.id} (still FUNDED)")
                         self.pending_escrows[offer.id] = {
                             "platform": name,
                             "escrow_address": escrow_info.get("escrow", ""),
                             "amount_sats": offer.max_sats,
                             "funded": True,
-                            "funded_at": real_date,
-                            "premium": offer.premium_pct,
+                            "funded_at": funded_at,
+                            "premium": saved.get("premium", offer.premium_pct),
                         }
                         log.info(f"{name}: synced offer {offer.id}")
                     except Exception:
@@ -223,6 +270,7 @@ class TradingEngine:
         """Check for incoming trade requests and auto-accept with payment data."""
         pconfig = self.config.get("platforms", {}).get(name, {})
         raw = pconfig.get("payment_data_raw", {})
+        info_cfg = pconfig.get("payment_data_info", {})
 
         # Build payment data map (method → raw payment data for hashing/encryption)
         payment_data_map = self._build_payment_data_map(raw)
@@ -234,26 +282,46 @@ class TradingEngine:
         for oid, info in funded.items():
             try:
                 trade_requests = platform.check_trade_requests(oid)
+                # Successful API call — reset any 401 counter
+                if info.get("_401_count"):
+                    with self._escrow_lock:
+                        if oid in self.pending_escrows:
+                            self.pending_escrows[oid].pop("_401_count", None)
                 if not trade_requests:
                     continue
-                tr = trade_requests[0]
-                method = tr.get("paymentMethod", "")
-                raw_data = payment_data_map.get(method, "")
-                if not raw_data:
-                    log.warning(f"{name}: No payment data for {method}")
-                    continue
-                buyer_id = tr.get("userId", "")
-                platform.accept_trade_request(oid, buyer_id, method, raw_data, trade_request_data=tr)
-                log.info(f"{name}: ACCEPTED {buyer_id[:12]} via {method}")
-                if self.notifier:
-                    self.notifier.notify_match(oid, buyer_id)
+                # Try all trade requests until one with a supported method is found
+                accepted = False
+                for tr in trade_requests:
+                    buyer_id = tr.get("userId", tr.get("user", {}).get("id", ""))
+                    method = tr.get("paymentMethod", "")
+                    raw_data = payment_data_map.get(method, "")
+                    if not raw_data:
+                        log.warning(f"{name}: No payment data for method {method}, trying next request")
+                        continue
+                    platform.accept_trade_request(oid, buyer_id, method, raw_data, trade_request_data=tr)
+                    log.info(f"{name}: ACCEPTED {buyer_id[:12]} via {method}")
+                    if self.notifier:
+                        self.notifier.notify_match(oid, buyer_id)
+                    accepted = True
+                    break
+                if not accepted:
+                    log.warning(f"{name}: No supported payment method in {len(trade_requests)} trade request(s) for {oid}")
             except Exception as e:
                 log.warning(f"{name}: match check {oid[:12]}: {e}")
-                # Only remove on 401 if already funded (unfunded offers get 401 normally)
+                # On 401 (unauthorized), only remove after multiple consecutive failures
                 if "401" in str(e) and info.get("funded"):
-                    self._contracted_offers.add(oid)
+                    fails = info.get("_401_count", 0) + 1
                     with self._escrow_lock:
-                        self.pending_escrows.pop(oid, None)
+                        if oid in self.pending_escrows:
+                            self.pending_escrows[oid]["_401_count"] = fails
+                    if fails >= 5:
+                        self._contracted_offers.add(oid)
+                        self._save_contracted_offers()
+                        with self._escrow_lock:
+                            self.pending_escrows.pop(oid, None)
+                        log.info(f"{name}: removed {oid[:12]} from polling (401 x{fails})")
+                    else:
+                        log.info(f"{name}: {oid[:12]} 401 ({fails}/5) — keeping in polling")
 
     def _build_payment_data_map(self, raw):
         """Build payment data map for trade request acceptance.
@@ -294,9 +362,58 @@ class TradingEngine:
                     log.info(f"{name}: PAYMENT RECEIVED {c.id[:16]}")
                     self._notified_contracts.add(c.id)
             elif c.status == OfferStatus.COMPLETED:
+                with self._escrow_lock:
+                    for oid in (c.offer_id, c.id):
+                        if oid and oid in self.pending_escrows:
+                            removed = self.pending_escrows.pop(oid)
+                            if removed.get("buy_data"):
+                                self._buy_data_cache[oid] = removed["buy_data"]
+                            break
                 if c.id not in self._recorded_contracts:
                     self._recorded_contracts.add(c.id)
                     self._record_trade(name, c)
+        # Save contracted offers only when the set actually changed
+        if self._contracted_offers != self._contracted_offers_snapshot:
+            self._save_contracted_offers()
+            self._contracted_offers_snapshot = set(self._contracted_offers)
+
+    def _load_contracted_offers(self):
+        try:
+            if os.path.exists(self._contracted_offers_file):
+                with open(self._contracted_offers_file) as f:
+                    self._contracted_offers = set(json.load(f))
+                    log.info(f"Loaded {len(self._contracted_offers)} contracted offers from disk")
+        except Exception as e:
+            log.debug(f"Failed to load contracted offers: {e}")
+
+    def _save_contracted_offers(self):
+        try:
+            ids = sorted(self._contracted_offers, key=lambda x: int(x) if x.isdigit() else 0)
+            if len(ids) > 100:
+                ids = ids[-100:]
+                self._contracted_offers = set(ids)
+            with open(self._contracted_offers_file, "w") as f:
+                json.dump(list(self._contracted_offers), f)
+        except Exception as e:
+            log.debug(f"Failed to save contracted offers: {e}")
+
+    def _load_escrow_state(self):
+        """Load persisted escrow state (funded_at timers after premium reductions)."""
+        try:
+            if os.path.exists(self._escrow_state_file):
+                with open(self._escrow_state_file) as f:
+                    return json.load(f)
+        except Exception as e:
+            log.debug(f"Failed to load escrow state: {e}")
+        return {}
+
+    def _save_escrow_state(self):
+        """Save escrow state so premium reduction timers survive restarts."""
+        try:
+            with open(self._escrow_state_file, "w") as f:
+                json.dump(self._escrow_state, f, indent=2)
+        except Exception as e:
+            log.debug(f"Failed to save escrow state: {e}")
 
     # ── Premium Auto-Reduction ────────────────────────────────────────────
 
@@ -333,7 +450,10 @@ class TradingEngine:
                         pass
             for oid in stale_ids:
                 self.pending_escrows.pop(oid, None)
+                self._escrow_state.pop(str(oid), None)
                 log.info(f"{name}: removed stale pending_escrow {oid[:12]} (>7 days old)")
+            if stale_ids:
+                self._save_escrow_state()
 
         pconfig = self.config.get("platforms", {}).get(name, {})
         reduction_hours = pconfig.get("premium_reduction_hours", 24)
@@ -358,6 +478,9 @@ class TradingEngine:
                 if hasattr(platform, "update_premium") and platform.update_premium(oid, new_premium):
                     info["premium"] = new_premium
                     info["funded_at"] = now.isoformat()  # reset timer
+                    # Persist so timer survives restarts
+                    self._escrow_state[str(oid)] = {"funded_at": now.isoformat(), "premium": new_premium}
+                    self._save_escrow_state()
                     log.info(f"{name}: {oid[:12]} premium {current}% -> {new_premium}%")
                     if self.notifier:
                         self.notifier._send(
