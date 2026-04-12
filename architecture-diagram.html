@@ -260,6 +260,7 @@
         <li><span class="dot"></span>Contract monitoring with PSBT signing</li>
         <li><span class="dot"></span>Auto premium reduction via live PATCH (no cancel/refund)</li>
         <li><span class="dot"></span>Auto-refund: sign &amp; broadcast cancelled escrow PSBTs every 10min</li>
+        <li><span class="dot"></span><b>Auto buy-escrow</b>: every 10min, CHF/EUR/USD, 5.5% fixed premium, no Revolut</li>
         <li><span class="dot"></span>Daily summary, low balance alerts, profit tracking</li>
         <li><span class="dot"></span>Multi-source spot price with fallback</li>
         <li><span class="dot"></span>Thread-safe concurrent access (engine + Telegram threads)</li>
@@ -430,6 +431,7 @@
         <li><span class="dot"></span><code style="color:#60a5fa">/cancel /pause /resume</code> — Control with inline keyboards</li>
         <li><span class="dot"></span>Background UTXO polling for escrow funding</li>
         <li><span class="dot"></span>Persistent pending fundings (survives restart)</li>
+        <li><span class="dot"></span>Telegram notifications for every auto buy-escrow (offer ID, premium, sats, BTC cost)</li>
       </ul>
     </div>
 
