@@ -310,9 +310,10 @@ class TradingEngine:
         if self._last_consolidation_check and (now - self._last_consolidation_check).total_seconds() < 1800:
             return
         self._last_consolidation_check = now
-        # Only consolidate when no funded offers waiting for matches (avoid UTXO conflicts)
-        has_funded = any(v.get("funded") for v in self.pending_escrows.values())
-        if has_funded:
+        # Only consolidate when no escrow funding is actively in progress (avoid UTXO conflicts).
+        # Funded offers waiting for a buyer match don't use UTXOs — safe to consolidate.
+        funding_in_progress = any(v.get("funding_in_progress") for v in self.pending_escrows.values())
+        if funding_in_progress:
             return
         try:
             from fund_from_wallet import consolidate_utxos
