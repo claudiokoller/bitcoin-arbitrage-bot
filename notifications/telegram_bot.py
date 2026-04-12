@@ -626,7 +626,8 @@ class TelegramBot:
                     for cur, methods in payment_methods.items()
                 }
                 payment_methods = {cur: methods for cur, methods in payment_methods.items() if methods}
-            premium = self.engine.pricer.get_premium("peach", peach)
+            auto_cfg = self.engine.config.get("auto_buy_escrow", {})
+            premium = auto_cfg.get("premium", 5.5)
 
             offer = peach.create_sell_offer(min_sats=min_sats, max_sats=max_sats,
                                             premium_pct=premium, payment_methods=payment_methods)
