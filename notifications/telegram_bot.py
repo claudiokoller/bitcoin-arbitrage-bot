@@ -920,35 +920,53 @@ class TelegramBot:
             self.engine.trade_logger.log_event("peach", "offer_created", offer.id)
             log.info(f"buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
 
-            await _tg(f"✅ Offer: <code>{offer.id[:16]}</code> @ {premium}%\n{min_sats:,}–{max_sats:,} sats\n\nSchritt 2/3: Kraken-Kauf…", parse_mode="HTML")
+            # Check if hot wallet already has enough confirmed UTXOs — skip Kraken buy if so
+            hot_wallet_sufficient = False
+            try:
+                from fund_from_wallet import get_utxos
+                hw_utxos = await loop.run_in_executor(None, get_utxos, hot_wallet_addr)
+                hw_confirmed = sum(u["value"] for u in hw_utxos if u.get("status", {}).get("confirmed", False))
+                if hw_confirmed >= max_sats + 2000:
+                    hot_wallet_sufficient = True
+                    log.info(f"buy_escrow: hot wallet has {hw_confirmed:,} sats — skipping Kraken buy/withdraw")
+            except Exception as hw_err:
+                log.warning(f"buy_escrow: hot wallet check failed: {hw_err}")
 
-            buy = await loop.run_in_executor(None, exchange.buy_btc_market, amount_fiat)
-            spot_at_buy = buy.effective_price if buy.effective_price else (buy.fiat_spent / buy.btc_amount if buy.btc_amount else 0)
+            if hot_wallet_sufficient:
+                await _tg(
+                    f"✅ Offer: <code>{offer.id[:16]}</code> @ {premium}%\n{min_sats:,}–{max_sats:,} sats\n\n"
+                    f"ℹ️ Hot Wallet hat genug ({hw_confirmed:,} sats) — Kraken-Kauf übersprungen\n\n"
+                    f"Schritt 2/2: Hot Wallet → Escrow…",
+                    parse_mode="HTML")
+            else:
+                await _tg(f"✅ Offer: <code>{offer.id[:16]}</code> @ {premium}%\n{min_sats:,}–{max_sats:,} sats\n\nSchritt 2/3: Kraken-Kauf…", parse_mode="HTML")
 
-            # Store actual buy data for accurate profit calculation later
-            with self.engine._escrow_lock:
-                if offer.id in self.engine.pending_escrows:
-                    self.engine.pending_escrows[offer.id]["buy_data"] = {
-                        "fiat_spent": buy.fiat_spent,
-                        "exchange_fee": buy.fee_fiat,
-                        "spot_at_buy": spot_at_buy,
-                        "btc_amount": buy.btc_amount,
-                        "buy_currency": currency,
-                    }
+                buy = await loop.run_in_executor(None, exchange.buy_btc_market, amount_fiat)
+                spot_at_buy = buy.effective_price if buy.effective_price else (buy.fiat_spent / buy.btc_amount if buy.btc_amount else 0)
 
-            # Always withdraw to hot wallet (Kraken whitelist), then fund escrow automatically
-            # Use actual balance (not buy amount) to account for Kraken withdrawal fee
-            actual_balance = await loop.run_in_executor(None, exchange.get_btc_balance)
-            withdraw_amount = min(buy.btc_amount, actual_balance)
-            withdrawal = await loop.run_in_executor(None, lambda: exchange.withdraw_btc("", withdraw_amount))
-            log.info(f"buy_escrow: withdrawal {withdrawal.withdrawal_id} ({buy.btc_amount:.8f} BTC)")
+                # Store actual buy data for accurate profit calculation later
+                with self.engine._escrow_lock:
+                    if offer.id in self.engine.pending_escrows:
+                        self.engine.pending_escrows[offer.id]["buy_data"] = {
+                            "fiat_spent": buy.fiat_spent,
+                            "exchange_fee": buy.fee_fiat,
+                            "spot_at_buy": spot_at_buy,
+                            "btc_amount": buy.btc_amount,
+                            "buy_currency": currency,
+                        }
 
-            await _tg(
-                f"✅ {buy.btc_amount:.8f} BTC für {buy.fiat_spent:.2f} {currency}\n"
-                f"Withdrawal-ID: <code>{withdrawal.withdrawal_id}</code>\n\n"
-                f"Schritt 3/3: Warte auf On-Chain-Bestätigung…\n"
-                f"(Automatische Escrow-Finanzierung sobald Hot Wallet UTXO verfügbar)",
-                parse_mode="HTML")
+                # Withdraw to hot wallet, then fund escrow automatically
+                actual_balance = await loop.run_in_executor(None, exchange.get_btc_balance)
+                withdraw_amount = min(buy.btc_amount, actual_balance)
+                withdrawal = await loop.run_in_executor(None, lambda: exchange.withdraw_btc("", withdraw_amount))
+                log.info(f"buy_escrow: withdrawal {withdrawal.withdrawal_id} ({buy.btc_amount:.8f} BTC)")
+
+                await _tg(
+                    f"✅ {buy.btc_amount:.8f} BTC für {buy.fiat_spent:.2f} {currency}\n"
+                    f"Withdrawal-ID: <code>{withdrawal.withdrawal_id}</code>\n\n"
+                    f"Schritt 3/3: Warte auf On-Chain-Bestätigung…\n"
+                    f"(Automatische Escrow-Finanzierung sobald Hot Wallet UTXO verfügbar)",
+                    parse_mode="HTML")
 
             if not escrow_addr:
                 await _tg(f"⚠️ Keine Escrow-Adresse für Offer <code>{offer.id}</code>", parse_mode="HTML"); return
