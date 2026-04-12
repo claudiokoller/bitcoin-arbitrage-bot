@@ -86,7 +86,7 @@ class TelegramBot:
             "/pause /resume\n"
             "/trades /profit /market\n\n"
             "<b>Buy</b>\n"
-            "/buy_escrow &lt;fiat&gt; [premium%]\n"
+            "/buy_escrow &lt;betrag&gt; [premium%]  (CHF/EUR/USD/BTC)\n"
             "/buy &lt;fiat&gt;\n\n"
             "<b>Management</b>\n"
             "/wallet /contracts /cancel /refunds",
@@ -113,14 +113,24 @@ class TelegramBot:
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
     async def cmd_buy_escrow(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Full cycle: Kraken market buy -> create Peach offer -> fund escrow.
+        """Full cycle: Kraken -> create Peach offer -> fund escrow.
 
-        Steps:
+        Currency selection via inline keyboard:
+        - CHF/EUR/USD: market buy BTC on Kraken with fiat amount, then withdraw
+        - BTC: withdraw existing Kraken BTC directly (amount = sats, no buy)
+
+        Steps (fiat flow):
         1. Get spot price, calculate sats amount
         2. Create sell offer on Peach with payment methods + premium
         3. Market buy BTC on Kraken
         4. Withdraw to hot wallet
         5. Background thread polls for UTXO, then funds escrow on-chain
+
+        Steps (BTC flow):
+        1. Check Kraken BTC balance
+        2. Create sell offer on Peach
+        3. Withdraw existing BTC to hot wallet
+        4. Background thread polls for UTXO, then funds escrow on-chain
 
         Implementation handles:
         - Escrow double-funding prevention

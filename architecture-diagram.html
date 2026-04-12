@@ -424,7 +424,7 @@
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Full cycle: Buy → Offer → Escrow</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Full cycle: CHF/EUR/USD buy or BTC withdraw → Offer → Escrow</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/market</code> — Competitive analysis + premium recommendation</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/status /balance /offers /contracts</code> — Monitoring</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/cancel /pause /resume</code> — Control with inline keyboards</li>
@@ -490,12 +490,12 @@
       <div class="pipe-step">
         <div class="pipe-num">1</div>
         <div class="pipe-label">Telegram</div>
-        <div class="pipe-detail">/buy_escrow 200</div>
+        <div class="pipe-detail">/buy_escrow 200<br><small style="opacity:.7">CHF/EUR/USD/BTC</small></div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">2</div>
         <div class="pipe-label">Exchange Buy</div>
-        <div class="pipe-detail">Market order</div>
+        <div class="pipe-detail">Market order<br><small style="opacity:.7">(skip if BTC)</small></div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">3</div>
