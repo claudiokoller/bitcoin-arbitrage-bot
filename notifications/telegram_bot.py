@@ -590,6 +590,112 @@ class TelegramBot:
             await update.message.reply_text("Kein Exchange verfügbar."); return
         await self._execute_buy_escrow(exchange, amount_fiat, manual_premium, send_fn=update.message.reply_text, exclude_methods=exclude_methods)
 
+    def trigger_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
+        """Called by engine to auto-trigger buy_escrow_norev. Runs in background thread."""
+        threading.Thread(
+            target=self._run_auto_buy_escrow,
+            args=(exchange, amount_fiat, exclude_methods),
+            daemon=True, name=f"auto-buy-{exchange.name[:10]}"
+        ).start()
+
+    def _run_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
+        """Synchronous buy-escrow flow for auto-trigger. Mirrors _execute_buy_escrow."""
+        currency = exchange.get_fiat_currency()
+        peach = self.engine.platforms.get("peach")
+        if not peach:
+            return
+        pconfig = self.engine.config.get("platforms", {}).get("peach", {})
+        hot_wallet_addr = pconfig.get("refund_address", "")
+        if not hot_wallet_addr:
+            return
+
+        def _notify(text):
+            self.notifier._send(text)
+
+        label = f" (ohne {', '.join(exclude_methods)})" if exclude_methods else ""
+        log.info(f"auto_buy_escrow: {amount_fiat:.0f} {currency}{label}")
+        try:
+            spot = exchange.get_spot_price()
+            amount_sats = int((amount_fiat / spot) * 1e8 * 0.99)
+            min_sats = pconfig.get("min_amount_sats", 10000)
+            max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            payment_methods = pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]})
+            if exclude_methods:
+                payment_methods = {
+                    cur: [m for m in methods if m not in exclude_methods]
+                    for cur, methods in payment_methods.items()
+                }
+                payment_methods = {cur: methods for cur, methods in payment_methods.items() if methods}
+            premium = self.engine.pricer.get_premium("peach", peach)
+
+            offer = peach.create_sell_offer(min_sats=min_sats, max_sats=max_sats,
+                                            premium_pct=premium, payment_methods=payment_methods)
+            escrow_addr = offer.escrow_address
+            if not escrow_addr:
+                try:
+                    info = peach.create_escrow(offer.id)
+                    escrow_addr = info.get("address", "")
+                except Exception as e:
+                    log.warning(f"auto_buy_escrow create_escrow: {e}")
+            with self.engine._escrow_lock:
+                self.engine.pending_escrows[offer.id] = {
+                    "platform": "peach", "escrow_address": escrow_addr,
+                    "amount_sats": max_sats, "funded": False,
+                    "funding_in_progress": True, "premium": premium}
+            self.engine.trade_logger.log_event("peach", "offer_created", offer.id)
+            log.info(f"auto_buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+
+            # Check hot wallet — skip Kraken buy if already sufficient
+            hot_wallet_sufficient = False
+            hw_confirmed = 0
+            try:
+                from fund_from_wallet import get_utxos
+                hw_utxos = get_utxos(hot_wallet_addr)
+                hw_confirmed = sum(u["value"] for u in hw_utxos if u.get("status", {}).get("confirmed", False))
+                if hw_confirmed >= max_sats + 2000:
+                    hot_wallet_sufficient = True
+                    log.info(f"auto_buy_escrow: hot wallet {hw_confirmed:,} sats — skipping Kraken buy")
+            except Exception as hw_err:
+                log.warning(f"auto_buy_escrow: hot wallet check failed: {hw_err}")
+
+            if hot_wallet_sufficient:
+                _notify(
+                    f"<b>🤖 Auto Buy-Escrow{label}</b>\n"
+                    f"Offer <code>{offer.id[:16]}</code> @ {premium:.1f}%\n"
+                    f"{min_sats:,}–{max_sats:,} sats\n"
+                    f"ℹ️ Hot Wallet hat genug ({hw_confirmed:,} sats) — Kraken übersprungen")
+            else:
+                buy = exchange.buy_btc_market(amount_fiat)
+                spot_at_buy = buy.effective_price or (buy.fiat_spent / buy.btc_amount if buy.btc_amount else 0)
+                with self.engine._escrow_lock:
+                    if offer.id in self.engine.pending_escrows:
+                        self.engine.pending_escrows[offer.id]["buy_data"] = {
+                            "fiat_spent": buy.fiat_spent, "exchange_fee": buy.fee_fiat,
+                            "spot_at_buy": spot_at_buy, "btc_amount": buy.btc_amount,
+                            "buy_currency": currency}
+                actual_balance = exchange.get_btc_balance()
+                withdraw_amount = min(buy.btc_amount, actual_balance)
+                withdrawal = exchange.withdraw_btc("", withdraw_amount)
+                log.info(f"auto_buy_escrow: withdrawal {withdrawal.withdrawal_id} ({buy.btc_amount:.8f} BTC)")
+                _notify(
+                    f"<b>🤖 Auto Buy-Escrow{label}</b>\n"
+                    f"Offer <code>{offer.id[:16]}</code> @ {premium:.1f}%\n"
+                    f"{min_sats:,}–{max_sats:,} sats\n"
+                    f"✅ {buy.btc_amount:.8f} BTC für {buy.fiat_spent:.2f} {currency}\n"
+                    f"Withdrawal: <code>{withdrawal.withdrawal_id}</code>")
+
+            if not escrow_addr:
+                log.error(f"auto_buy_escrow: no escrow_addr for {offer.id}")
+                return
+            self._save_pending_funding(offer.id, escrow_addr, max_sats, hot_wallet_addr)
+            threading.Thread(
+                target=self._poll_and_fund_escrow,
+                args=(offer.id, escrow_addr, max_sats, hot_wallet_addr),
+                daemon=True, name=f"fund-{offer.id[:8]}").start()
+        except Exception as e:
+            log.exception(f"auto_buy_escrow: {e}")
+            self.notifier._send(f"❌ <b>Auto Buy-Escrow Fehler</b> ({currency})\n{str(e)[:300]}")
+
     async def cmd_fund(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Peach-Offer erstellen + direkt von Hot Wallet funden (alle Methoden)"""
         await self._fund_with_methods(update, ctx)

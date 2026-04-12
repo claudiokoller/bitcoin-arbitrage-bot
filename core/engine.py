@@ -179,6 +179,7 @@ class TradingEngine:
         self._premium_reductions = {}  # {offer_id: original_premium} for tracking reductions
         self._last_stale_check = None
         self._last_consolidation_check = None
+        self._last_auto_buy_check = 0
         self._escrow_state_file = os.path.join(os.path.dirname(__file__), "..", "escrow_state.json")
         self._escrow_state = self._load_escrow_state()
         self._cached_active_offers = {}  # {platform_name: [offers]} — reused by _auto_broadcast_refunds
@@ -272,6 +273,7 @@ class TradingEngine:
         self._check_low_balance()
         self._check_pending_refunds()
         self._auto_consolidate_utxos()
+        self._auto_buy_escrow_check()
         self._prune_tracking_sets()
         tick_duration = time.time() - tick_start
         if tick_duration > self.poll_interval:
@@ -304,6 +306,34 @@ class TradingEngine:
                     self._low_balance_warned[ex_name] = False
             except Exception:
                 pass
+    def _auto_buy_escrow_check(self):
+        """Auto-trigger buy_escrow_norev for each exchange with sufficient fiat balance.
+        Runs every check_interval_sec (default 600s). Multiple offers can be active simultaneously.
+        """
+        cfg = self.config.get("auto_buy_escrow", {})
+        if not cfg.get("enabled"):
+            return
+        now = time.time()
+        interval = cfg.get("check_interval_sec", 600)
+        if now - self._last_auto_buy_check < interval:
+            return
+        self._last_auto_buy_check = now
+        if self.paused or not self.notifier:
+            return
+        amounts = cfg.get("amounts", [500, 400, 300, 200])
+        exclude_methods = cfg.get("exclude_methods", ["revolut"])
+        for ex in self.exchanges.values():
+            try:
+                fiat_balance = ex.get_fiat_balance()
+                currency = ex.get_fiat_currency() if hasattr(ex, "get_fiat_currency") else "?"
+                for amount in amounts:
+                    if fiat_balance >= amount * 0.98:
+                        log.info(f"auto_buy_escrow: triggering {ex.name} {amount:.0f} {currency} (balance: {fiat_balance:.2f})")
+                        self.notifier.trigger_auto_buy_escrow(ex, float(amount), exclude_methods)
+                        break  # one offer per exchange per cycle
+            except Exception as e:
+                log.debug(f"auto_buy_escrow check {ex.name}: {e}")
+
     def _auto_consolidate_utxos(self):
         """Consolidate hot wallet UTXOs when idle and fees are low. Runs every 30 min."""
         now = datetime.now()
