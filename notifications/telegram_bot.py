@@ -111,7 +111,7 @@ class TelegramBot:
                 cur = s.get('currency', 'CHF')
                 btc = s.get('btc_balance', 0)
                 fiat = s.get('fiat_balance', 0)
-                if not btc_shown and btc > 0:
+                if not btc_shown:
                     lines.append(f"<b>BTC (Kraken)</b>: {btc:.8f} BTC ({int(btc * 1e8):,} sats)")
                     btc_shown = True
                 lines.append(f"<b>{s.get('name', n)}</b>: {fiat:,.2f} {cur}")
