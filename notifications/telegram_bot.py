@@ -105,6 +105,7 @@ class TelegramBot:
         if not self._auth(update) or not self.engine: return
         lines = ["<b>Balances</b>\n"]
         btc_shown = False
+        loop = asyncio.get_event_loop()
         for n, ex in self.engine.exchanges.items():
             try:
                 s = ex.get_status()
@@ -112,7 +113,12 @@ class TelegramBot:
                 btc = s.get('btc_balance', 0)
                 fiat = s.get('fiat_balance', 0)
                 if not btc_shown:
-                    lines.append(f"<b>BTC (Kraken)</b>: {btc:.8f} BTC ({int(btc * 1e8):,} sats)")
+                    try:
+                        chf_spot = await loop.run_in_executor(None, SpotPriceProvider.get_spot_chf)
+                        btc_chf = btc * chf_spot
+                        lines.append(f"<b>BTC (Kraken)</b>: {btc:.8f} BTC ({int(btc * 1e8):,} sats) ≈ {btc_chf:,.2f} CHF")
+                    except Exception:
+                        lines.append(f"<b>BTC (Kraken)</b>: {btc:.8f} BTC ({int(btc * 1e8):,} sats)")
                     btc_shown = True
                 lines.append(f"<b>{s.get('name', n)}</b>: {fiat:,.2f} {cur}")
             except Exception as e:
