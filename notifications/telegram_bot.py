@@ -638,12 +638,7 @@ class TelegramBot:
                     escrow_addr = info.get("address", "")
                 except Exception as e:
                     log.warning(f"auto_buy_escrow create_escrow: {e}")
-            with self.engine._escrow_lock:
-                self.engine.pending_escrows[offer.id] = {
-                    "platform": "peach", "escrow_address": escrow_addr,
-                    "amount_sats": max_sats, "funded": False,
-                    "funding_in_progress": True, "premium": premium}
-            self.engine.trade_logger.log_event("peach", "offer_created", offer.id)
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
             log.info(f"auto_buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
 
             # Check hot wallet — skip Kraken buy if already sufficient
@@ -785,13 +780,7 @@ class TelegramBot:
                 except Exception as e:
                     log.warning(f"create_escrow: {e}")
 
-            with self.engine._escrow_lock:
-                self.engine.pending_escrows[offer.id] = {
-                    "platform": "peach", "escrow_address": escrow_addr,
-                    "amount_sats": max_sats, "funded": False,
-                    "funding_in_progress": True,
-                    "premium": premium}
-            self.engine.trade_logger.log_event("peach", "offer_created", offer.id)
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
             log.info(f"fund: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
 
             await _tg(
@@ -932,13 +921,7 @@ class TelegramBot:
                 except Exception as e:
                     log.warning(f"create_escrow: {e}")
 
-            with self.engine._escrow_lock:
-                self.engine.pending_escrows[offer.id] = {
-                    "platform": "peach", "escrow_address": escrow_addr,
-                    "amount_sats": max_sats, "funded": False,
-                    "funding_in_progress": True,
-                    "premium": premium}
-            self.engine.trade_logger.log_event("peach", "offer_created", offer.id)
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
             log.info(f"escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
 
             await _tg(
@@ -1021,16 +1004,7 @@ class TelegramBot:
                     escrow_addr = info.get("address", "")
                 except Exception as e:
                     log.warning(f"create_escrow: {e}")
-            # funding_in_progress=True prevents engine's _fund_escrows from triggering duplicate buy
-            # funded=False until actual funding completes (prevents _check_matches from polling too early)
-            with self.engine._escrow_lock:
-                from datetime import datetime as dt
-                self.engine.pending_escrows[offer.id] = {
-                    "platform": "peach", "escrow_address": escrow_addr,
-                    "amount_sats": max_sats, "funded": False,
-                    "funding_in_progress": True,
-                    "premium": premium}
-            self.engine.trade_logger.log_event("peach", "offer_created", offer.id)
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
             log.info(f"buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
 
             # Check if hot wallet already has enough confirmed UTXOs — skip Kraken buy if so

@@ -190,6 +190,15 @@ class TradingEngine:
         self.exchanges[e.name] = e
         log.info(f"Exchange: {e.name}")
     def set_notifier(self, n): self.notifier = n
+
+    def add_pending_escrow(self, offer_id, escrow_addr, amount_sats, premium):
+        """Register a new offer in pending_escrows and log it. Thread-safe."""
+        with self._escrow_lock:
+            self.pending_escrows[offer_id] = {
+                "platform": "peach", "escrow_address": escrow_addr,
+                "amount_sats": amount_sats, "funded": False,
+                "funding_in_progress": True, "premium": premium}
+        self.trade_logger.log_event("peach", "offer_created", offer_id)
     def get_best_exchange(self):
         best = None
         best_price = float("inf")
@@ -332,7 +341,7 @@ class TradingEngine:
                         self.notifier.trigger_auto_buy_escrow(ex, float(amount), exclude_methods)
                         break  # one offer per exchange per cycle
             except Exception as e:
-                log.debug(f"auto_buy_escrow check {ex.name}: {e}")
+                log.warning(f"auto_buy_escrow check {ex.name}: {e}")
 
     def _auto_consolidate_utxos(self):
         """Consolidate hot wallet UTXOs when idle and fees are low. Runs every 30 min."""
@@ -342,7 +351,8 @@ class TradingEngine:
         self._last_consolidation_check = now
         # Only consolidate when no escrow funding is actively in progress (avoid UTXO conflicts).
         # Funded offers waiting for a buyer match don't use UTXOs — safe to consolidate.
-        funding_in_progress = any(v.get("funding_in_progress") for v in self.pending_escrows.values())
+        with self._escrow_lock:
+            funding_in_progress = any(v.get("funding_in_progress") for v in self.pending_escrows.values())
         if funding_in_progress:
             return
         try:
@@ -359,7 +369,7 @@ class TradingEngine:
                         f"TXID: <code>{result['txid'][:16]}...</code>"
                     )
         except Exception as e:
-            log.debug(f"UTXO consolidation: {e}")
+            log.warning(f"UTXO consolidation: {e}")
 
     def _load_pending_refunds(self):
         """Load pending refunds from file (persists across restarts). Thread-safe."""
@@ -741,10 +751,9 @@ class TradingEngine:
                     else:
                         log.info(f"{name}: {oid[:12]} 401 ({fails}/{max_fails}) — backoff {30 * (2 ** (fails - 1))}s")
     def _check_contracts(self, name, platform):
-        # Prune _contracted_offers to prevent unbounded growth
+        # Prune _contracted_offers to prevent unbounded growth (keep newest 50 by lexicographic sort)
         if len(self._contracted_offers) > 100:
-            sorted_ids = sorted(self._contracted_offers, key=lambda x: int(x) if x.isdigit() else 0)
-            self._contracted_offers = set(sorted_ids[-50:])
+            self._contracted_offers = set(sorted(self._contracted_offers)[-50:])
         try: contracts = platform.get_contracts()
         except Exception as e: log.warning(f"{name}: contracts: {e}"); return
         for c in contracts:
