@@ -1387,15 +1387,15 @@ class TelegramBot:
             await send_fn(f"Fehler: {e}")
 
     async def cmd_reload(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Lädt config.json neu ohne Restart"""
+        """Lädt config.json neu — inkl. Exchange-Keys und Peach-Credentials"""
         if not self._auth(update) or not self.engine: return
         try:
-            config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
-            with open(config_path) as f:
-                new_config = json.load(f)
-            self.engine.config = new_config
-            await update.message.reply_text("✅ Config neu geladen.", parse_mode="HTML")
-            log.info("Config reloaded via /reload command")
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.engine.reload_config)
+            await update.message.reply_text(
+                "✅ <b>Config neu geladen</b>\n"
+                "Exchange-Keys, Peach-Credentials und auto_buy_escrow aktualisiert.",
+                parse_mode="HTML")
         except Exception as e:
             await update.message.reply_text(f"❌ Fehler beim Laden: {e}")
             log.warning(f"Config reload failed: {e}")

@@ -181,9 +181,48 @@ class TradingEngine:
         self._last_consolidation_check = None
         self._last_auto_buy_check = 0
         self._last_contracted_offers_save = 0
+        self._platform_down_since = {}     # {name: timestamp} — when platform first became unreachable
+        self._platform_down_notified = set()  # platforms where outage alert was already sent
         self._escrow_state_file = os.path.join(os.path.dirname(__file__), "..", "escrow_state.json")
         self._escrow_state = self._load_escrow_state()
         self._cached_active_offers = {}  # {platform_name: [offers]} — reused by _auto_broadcast_refunds
+    def reload_config(self, config_path=None):
+        """Hot-reload config.json — updates engine config, exchanges, and platform credentials."""
+        import os as _os
+        if config_path is None:
+            config_path = _os.path.join(_os.path.dirname(__file__), "..", "config.json")
+        with open(config_path) as f:
+            new_cfg = json.load(f)
+        self.config = new_cfg
+
+        # Reinitialize exchanges with new API keys
+        from exchanges.kraken import KrakenExchange
+        for key, ecfg in new_cfg.get("exchanges", {}).items():
+            if not ecfg.get("enabled"): continue
+            if not key.startswith("kraken"): continue
+            ecfg.setdefault("name", key)
+            ex_name = ecfg["name"]
+            try:
+                new_ex = KrakenExchange(ecfg)
+                self.exchanges[ex_name] = new_ex
+                log.info(f"reload_config: exchange {ex_name} reinitialized")
+            except Exception as e:
+                log.warning(f"reload_config: exchange {ex_name}: {e}")
+
+        # Update Peach platform credentials without full re-init
+        peach = self.platforms.get("peach")
+        if peach:
+            pcfg = new_cfg.get("platforms", {}).get("peach", {})
+            for attr in ("payment_data_raw", "payment_data_info", "pgp_private_key",
+                         "pgp_public_key", "refund_address"):
+                val = pcfg.get(attr)
+                if val is not None:
+                    setattr(peach, attr, val)
+            peach.access_token = None  # force re-auth on next tick
+            log.info("reload_config: peach credentials updated, re-auth scheduled")
+
+        log.info("Config reloaded successfully")
+
     def add_platform(self, p):
         self.platforms[p.name] = p
         log.info(f"Platform: {p.name}")
@@ -556,8 +595,27 @@ class TradingEngine:
         # Quick health check: if auth fails, skip entire platform this tick
         try:
             platform._ensure_auth()
+            # Platform reachable — clear outage state if it was down
+            if name in self._platform_down_since:
+                down_sec = int(time.time() - self._platform_down_since.pop(name))
+                self._platform_down_notified.discard(name)
+                log.info(f"{name}: API wieder erreichbar (war {down_sec}s down)")
+                if self.notifier:
+                    self.notifier._send(f"✅ <b>{name} API wieder erreichbar</b>\n(war {down_sec}s nicht verfügbar)")
         except Exception as e:
             log.warning(f"{name}: auth failed, skipping tick: {e}")
+            now = time.time()
+            if name not in self._platform_down_since:
+                self._platform_down_since[name] = now
+            down_sec = now - self._platform_down_since[name]
+            if down_sec > 300 and name not in self._platform_down_notified:
+                self._platform_down_notified.add(name)
+                log.error(f"{name}: API seit {down_sec:.0f}s nicht erreichbar!")
+                if self.notifier:
+                    self.notifier._send(
+                        f"🚨 <b>{name} API nicht erreichbar</b>\n"
+                        f"Seit {int(down_sec // 60)} Minuten ausgefallen.\n"
+                        f"Fehler: {str(e)[:200]}")
             return
         # Sequential: create offers + fund first (must complete before match checking)
         self._timed(f"{name}/offers", self._create_offers, name, platform)

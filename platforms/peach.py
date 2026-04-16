@@ -45,6 +45,7 @@ class PeachPlatform(PlatformBase):
         self._scan_cache_ttl = 60  # seconds
         self._escrow_status_cache = {}  # {offer_id: {"data": dict, "ts": float}}
         self._escrow_status_cache_ttl = 300  # 5 minutes
+        self._auth_lock = __import__('threading').Lock()  # prevents concurrent re-auths
 
     def _get_escrow_privkey_hex(self, offer_id) -> str:
         """
@@ -86,9 +87,12 @@ class PeachPlatform(PlatformBase):
         return True
 
     def _ensure_auth(self):
-        """Re-authenticate if token might be expired (tokens last ~1h)"""
+        """Re-authenticate if token might be expired (tokens last ~1h).
+        Thread-safe: double-checked locking prevents concurrent re-auths."""
         if not self.access_token or (time.time() - self._auth_time > 3000):
-            self.authenticate()
+            with self._auth_lock:
+                if not self.access_token or (time.time() - self._auth_time > 3000):
+                    self.authenticate()
 
     def _api_call(self, method, url, **kwargs):
         """Make API call with automatic 401 retry and 5xx backoff."""
