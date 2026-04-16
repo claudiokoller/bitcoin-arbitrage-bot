@@ -170,7 +170,7 @@ class TradingEngine:
         self.auto_confirm = config.get("auto_confirm_payment",False)
         self._notified_contracts = set()  # track already-notified contract IDs
         self._recorded_contracts = set()  # track already-logged trades
-        self._low_balance_warned = {}  # {exchange_name: bool} — per-exchange warning state
+        self._low_balance_warned = {}  # {exchange_name: float (timestamp)} — per-exchange last warning time
         self._buy_data_cache = {}  # preserved buy data after offer removed from pending_escrows
         self._start_time = datetime.now()
         self._last_daily_summary = None
@@ -180,6 +180,7 @@ class TradingEngine:
         self._last_stale_check = None
         self._last_consolidation_check = None
         self._last_auto_buy_check = 0
+        self._last_contracted_offers_save = 0
         self._escrow_state_file = os.path.join(os.path.dirname(__file__), "..", "escrow_state.json")
         self._escrow_state = self._load_escrow_state()
         self._cached_active_offers = {}  # {platform_name: [offers]} — reused by _auto_broadcast_refunds
@@ -259,7 +260,8 @@ class TradingEngine:
                     time.sleep(backoff)
                     continue
             # Adaptive polling: faster when funded offers exist (waiting for matches)
-            has_funded = any(v.get("funded") for v in self.pending_escrows.values())
+            with self._escrow_lock:
+                has_funded = any(v.get("funded") for v in self.pending_escrows.values())
             interval = self._poll_active if has_funded else self._poll_idle
             time.sleep(interval)
     def _prune_tracking_sets(self):
@@ -300,19 +302,21 @@ class TradingEngine:
     def _check_low_balance(self):
         now = datetime.now()
         if now.minute not in (0, 1): return  # check at top of hour (tolerant of 30s tick)
+        threshold = self.config.get("low_balance_threshold", 50)
+        cooldown = self.config.get("low_balance_cooldown_sec", 21600)  # 6h default
         for ex in self.exchanges.values():
             try:
-                fiat = ex.get_fiat_balance()
-                threshold = self.config.get("low_balance_threshold", 50)
+                fiat = ex.get_fiat_balance(cached=True)  # use cache — avoids extra API call every hour
                 ex_name = ex.name if hasattr(ex, 'name') else str(ex)
-                if fiat < threshold and not self._low_balance_warned.get(ex_name):
-                    self._low_balance_warned[ex_name] = True
+                last_warned = self._low_balance_warned.get(ex_name, 0)
+                if fiat < threshold and (not last_warned or time.time() - last_warned > cooldown):
+                    self._low_balance_warned[ex_name] = time.time()
                     if self.notifier:
                         currency = ex.get_fiat_currency() if hasattr(ex, 'get_fiat_currency') else 'EUR'
                         self.notifier.notify_low_balance(fiat, currency)
                         log.warning(f"Low balance {ex_name}: {fiat:.2f} {currency}")
                 elif fiat >= threshold:
-                    self._low_balance_warned[ex_name] = False
+                    self._low_balance_warned.pop(ex_name, None)  # reset when balance recovers
             except Exception:
                 pass
     def _auto_buy_escrow_check(self):
@@ -820,14 +824,18 @@ class TradingEngine:
             log.debug(f"Failed to load contracted offers: {e}")
 
     def _save_contracted_offers(self):
+        """Write contracted offers to disk — debounced to max once per 60s."""
+        now = time.time()
+        if now - self._last_contracted_offers_save < 60:
+            return
+        self._last_contracted_offers_save = now
         try:
-            # Keep only last 100
-            ids = sorted(self._contracted_offers, key=lambda x: int(x) if x.isdigit() else 0)
+            ids = sorted(self._contracted_offers)
             if len(ids) > 100:
                 ids = ids[-100:]
                 self._contracted_offers = set(ids)
             with open(self._contracted_offers_file, "w") as f:
-                json.dump(list(self._contracted_offers), f)
+                json.dump(ids, f)
         except Exception as e:
             log.debug(f"Failed to save contracted offers: {e}")
 

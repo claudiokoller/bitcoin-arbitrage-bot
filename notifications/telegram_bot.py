@@ -45,6 +45,17 @@ class TelegramBot:
         self._pending_buy_params = {}  # {chat_id: {amount, premium, command}}
     def _auth(self, update):
         return str(update.effective_chat.id) == self.chat_id
+
+    @staticmethod
+    def _filter_payment_methods(payment_methods, exclude_methods):
+        """Remove excluded methods and drop currencies with no remaining methods."""
+        if not exclude_methods:
+            return payment_methods
+        filtered = {
+            cur: [m for m in methods if m not in exclude_methods]
+            for cur, methods in payment_methods.items()
+        }
+        return {cur: methods for cur, methods in filtered.items() if methods}
     async def cmd_start(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cid = update.effective_chat.id
         if str(cid) != self.chat_id:
@@ -75,6 +86,7 @@ class TelegramBot:
             "<b>Sonstiges</b>\n"
             "/cancel &lt;offer_id&gt; – Offer abbrechen\n"
             "/refunds – Offene Refunds\n"
+            "/reload – Config neu laden (kein Restart)\n"
             "/pause /resume – Bot steuern",
             parse_mode="HTML")
     async def cmd_status(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -619,13 +631,8 @@ class TelegramBot:
             amount_sats = int((amount_fiat / spot) * 1e8 * 0.99)
             min_sats = pconfig.get("min_amount_sats", 10000)
             max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
-            payment_methods = pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]})
-            if exclude_methods:
-                payment_methods = {
-                    cur: [m for m in methods if m not in exclude_methods]
-                    for cur, methods in payment_methods.items()
-                }
-                payment_methods = {cur: methods for cur, methods in payment_methods.items() if methods}
+            payment_methods = self._filter_payment_methods(
+                pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             auto_cfg = self.engine.config.get("auto_buy_escrow", {})
             premium = auto_cfg.get("premium", 5.5)
 
@@ -761,13 +768,8 @@ class TelegramBot:
                 f"Schritt 1/2: Offer erstellen…",
                 parse_mode="HTML")
 
-            payment_methods = pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]})
-            if exclude_methods:
-                payment_methods = {
-                    cur: [m for m in methods if m not in exclude_methods]
-                    for cur, methods in payment_methods.items()
-                }
-                payment_methods = {cur: methods for cur, methods in payment_methods.items() if methods}
+            payment_methods = self._filter_payment_methods(
+                pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
 
             offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
                 min_sats=min_sats, max_sats=max_sats,
@@ -902,13 +904,8 @@ class TelegramBot:
                 f"Schritt 1/2: Offer erstellen…",
                 parse_mode="HTML")
 
-            payment_methods = pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]})
-            if exclude_methods:
-                payment_methods = {
-                    cur: [m for m in methods if m not in exclude_methods]
-                    for cur, methods in payment_methods.items()
-                }
-                payment_methods = {cur: methods for cur, methods in payment_methods.items() if methods}
+            payment_methods = self._filter_payment_methods(
+                pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
 
             offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
                 min_sats=min_sats, max_sats=max_sats,
@@ -984,14 +981,8 @@ class TelegramBot:
             amount_sats = int((amount_fiat / spot) * 1e8 * 0.99)
             min_sats = pconfig.get("min_amount_sats", 10000)
             max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
-            payment_methods = pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]})
-            if exclude_methods:
-                payment_methods = {
-                    cur: [m for m in methods if m not in exclude_methods]
-                    for cur, methods in payment_methods.items()
-                }
-                # Entferne Währungen ohne verbleibende Methoden
-                payment_methods = {cur: methods for cur, methods in payment_methods.items() if methods}
+            payment_methods = self._filter_payment_methods(
+                pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             premium = manual_premium if manual_premium is not None else self.engine.pricer.get_premium("peach", peach)
 
             offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
@@ -1395,6 +1386,20 @@ class TelegramBot:
         except Exception as e:
             await send_fn(f"Fehler: {e}")
 
+    async def cmd_reload(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """Lädt config.json neu ohne Restart"""
+        if not self._auth(update) or not self.engine: return
+        try:
+            config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+            with open(config_path) as f:
+                new_config = json.load(f)
+            self.engine.config = new_config
+            await update.message.reply_text("✅ Config neu geladen.", parse_mode="HTML")
+            log.info("Config reloaded via /reload command")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Fehler beim Laden: {e}")
+            log.warning(f"Config reload failed: {e}")
+
     async def cmd_refunds(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Zeige pending Refunds"""
         if not self._auth(update) or not self.engine: return
@@ -1410,7 +1415,7 @@ class TelegramBot:
 
     def build_app(self):
         app = Application.builder().token(self.token).build()
-        for cmd, fn in [("start",self.cmd_start),("status",self.cmd_status),("balance",self.cmd_balance),("offers",self.cmd_offers),("pause",self.cmd_pause),("resume",self.cmd_resume),("profit",self.cmd_profit),("market",self.cmd_market),("buy",self.cmd_buy),("escrow",self.cmd_escrow),("escrow_norev",self.cmd_escrow_norev),("fund",self.cmd_fund),("fund_norev",self.cmd_fund_norev),("buy_escrow",self.cmd_buy_escrow),("buy_escrow_norev",self.cmd_buy_escrow_norev),("wallet",self.cmd_wallet),("contracts",self.cmd_contracts),("sell",self.cmd_sell),("cancel",self.cmd_cancel),("refunds",self.cmd_refunds)]:
+        for cmd, fn in [("start",self.cmd_start),("status",self.cmd_status),("balance",self.cmd_balance),("offers",self.cmd_offers),("pause",self.cmd_pause),("resume",self.cmd_resume),("profit",self.cmd_profit),("market",self.cmd_market),("buy",self.cmd_buy),("escrow",self.cmd_escrow),("escrow_norev",self.cmd_escrow_norev),("fund",self.cmd_fund),("fund_norev",self.cmd_fund_norev),("buy_escrow",self.cmd_buy_escrow),("buy_escrow_norev",self.cmd_buy_escrow_norev),("wallet",self.cmd_wallet),("contracts",self.cmd_contracts),("sell",self.cmd_sell),("cancel",self.cmd_cancel),("refunds",self.cmd_refunds),("reload",self.cmd_reload)]:
             app.add_handler(CommandHandler(cmd, fn))
         app.add_handler(CallbackQueryHandler(self.handle_callback))
         return app
