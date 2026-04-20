@@ -686,7 +686,16 @@ class TelegramBot:
         log.info(f"auto_buy_escrow: {amount_fiat:.0f} {currency}{label}")
         try:
             spot = exchange.get_spot_price()
-            amount_sats = int((amount_fiat / spot) * 1e8 * 0.99)
+            # Deduct Kraken withdrawal fee so the arriving UTXO covers the escrow amount
+            # without needing to combine multiple UTXOs (avoids UTXO competition bug).
+            withdraw_fee_sats = 0
+            if hasattr(exchange, "get_withdrawal_fee_sats"):
+                try:
+                    withdraw_fee_sats = exchange.get_withdrawal_fee_sats()
+                except Exception:
+                    withdraw_fee_sats = 15_000
+            gross_sats = int((amount_fiat / spot) * 1e8)
+            amount_sats = int(gross_sats * 0.99) - withdraw_fee_sats
             min_sats = pconfig.get("min_amount_sats", 10000)
             max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
             payment_methods = self._filter_payment_methods(
@@ -1169,7 +1178,17 @@ class TelegramBot:
         import time
         from fund_from_wallet import get_utxos, fund_escrow
         max_wait = 14400  # 4h
+        fifo_stale_timeout = 7200  # 2h — treat predecessor as dead if stuck this long
+        topup_after = 300   # 5 min of insufficient balance → auto top-up
         start = time.time()
+        _insufficient_since = None
+        _topup_triggered = False
+
+        # Record when this thread started so FIFO can detect dead threads
+        with self.engine._escrow_lock:
+            if offer_id in self.engine.pending_escrows:
+                self.engine.pending_escrows[offer_id]["funding_started_at"] = start
+
         log.info(f"Polling hot wallet für Escrow {offer_id[:12]} ({amount_sats} sats)")
         while time.time() - start < max_wait:
             time.sleep(60)
@@ -1199,37 +1218,37 @@ class TelegramBot:
                                 self.notifier._send(f"🚨 <b>WRONG_FUNDING_AMOUNT</b>\nOffer: <code>{offer_id}</code>\nManuelle Prüfung nötig!")
                             return
                     except Exception as e:
-                        # Don't fund if we can't verify offer status (offer may be cancelled/expired)
                         log.warning(f"Poll fund {offer_id[:12]}: escrow status check failed: {e}, skipping this cycle")
                         continue
 
-                # FIFO: if another offer is ahead in the queue (inserted earlier into
-                # pending_escrows), wait for it to fund first.  This prevents two concurrent
-                # poll threads from both grabbing the same UTXOs, which would leave the
-                # second escrow permanently under-funded (select_utxos merges both UTXOs
-                # for the first escrow; the change back is less than the second needs).
+                # FIFO: only the first inserted pending offer funds; later ones wait.
+                # Dead-thread guard: skip a predecessor that has been stuck > fifo_stale_timeout.
                 with self.engine._escrow_lock:
-                    first_pending = next(
-                        (oid for oid, info in self.engine.pending_escrows.items()
-                         if not info.get("funded") and info.get("funding_in_progress")),
-                        None
-                    )
+                    first_pending = None
+                    for oid, info in self.engine.pending_escrows.items():
+                        if not info.get("funded") and info.get("funding_in_progress"):
+                            started = info.get("funding_started_at", time.time())
+                            if time.time() - started > fifo_stale_timeout:
+                                log.warning(f"Poll fund: skipping stale predecessor {oid[:12]} (stuck >{fifo_stale_timeout//3600}h)")
+                                continue
+                            first_pending = oid
+                            break
                 if first_pending and first_pending != offer_id:
                     log.debug(f"Poll fund {offer_id[:12]}: waiting for {first_pending[:12]} to fund first")
                     continue
 
                 utxos = get_utxos(hot_wallet_addr)
-                # Use confirmed UTXOs only (matching fund_escrow's behavior)
                 confirmed = [u for u in utxos if u.get('status', {}).get('confirmed', False)]
                 available = sum(u["value"] for u in (confirmed or utxos))
-                # Dynamic fee buffer: ~150 vbytes * fee_rate, minimum 1500 sats
                 try:
                     from fund_from_wallet import get_fee_rate
                     fee_buffer = max(150 * get_fee_rate(), 1500)
                 except Exception:
                     fee_buffer = 3000
                 log.info(f"Hot Wallet: {available} sats verfügbar (brauche {amount_sats} + ~{fee_buffer} fee)")
+
                 if available >= amount_sats + fee_buffer:
+                    _insufficient_since = None
                     result = fund_escrow(self.engine.config, escrow_addr, amount_sats)
                     with self.engine._escrow_lock:
                         if offer_id in self.engine.pending_escrows:
@@ -1245,18 +1264,59 @@ class TelegramBot:
                             f"TXID: <code>{result['txid']}</code>\n"
                             f"Fee: {result['fee']} sats")
                     return
+                else:
+                    # Insufficient balance — track duration for auto top-up
+                    if _insufficient_since is None:
+                        _insufficient_since = time.time()
+                    elif not _topup_triggered and time.time() - _insufficient_since >= topup_after:
+                        deficit_sats = amount_sats + fee_buffer - available
+                        self._try_topup_for_escrow(offer_id, deficit_sats)
+                        _topup_triggered = True  # only once per poll session
+
             except Exception as e:
                 log.warning(f"Poll fund {offer_id[:12]}: {e}")
         # Clear funding_in_progress so engine can pick it up if it gets funded externally
         with self.engine._escrow_lock:
             if offer_id in self.engine.pending_escrows:
                 self.engine.pending_escrows[offer_id].pop("funding_in_progress", None)
-        # Don't remove pending funding on timeout - it will be retried on next restart
         log.warning(f"Poll fund {offer_id[:12]}: timeout after {max_wait}s, will retry on restart")
         if self.notifier:
             self.notifier._send(
                 f"⚠️ <b>Timeout</b>: Escrow nach {max_wait//3600}h nicht finanziert (wird bei Restart erneut versucht)\n"
                 f"Offer: <code>{offer_id}</code> | {amount_sats:,} sats")
+
+    def _try_topup_for_escrow(self, offer_id, deficit_sats):
+        """Buy the deficit amount on Kraken and withdraw to hot wallet to cover a stuck escrow."""
+        exchange = self.engine.get_best_exchange()
+        if not exchange:
+            log.warning(f"topup {offer_id[:12]}: no exchange available")
+            return
+        try:
+            spot = exchange.get_spot_price()
+            currency = exchange.get_fiat_currency() if hasattr(exchange, "get_fiat_currency") else "?"
+            # Add 5% buffer on top of deficit to account for withdrawal fee and rounding
+            topup_sats = int(deficit_sats * 1.05) + 15_000
+            topup_fiat = topup_sats / 1e8 * spot
+            min_buy = 10.0  # don't buy less than 10 fiat
+            topup_fiat = max(topup_fiat, min_buy)
+            log.info(f"topup {offer_id[:12]}: buying {topup_fiat:.2f} {currency} to cover {deficit_sats:,} sats deficit")
+            if self.notifier:
+                self.notifier._send(
+                    f"⚠️ <b>Auto Top-Up</b>\n"
+                    f"Offer <code>{offer_id[:16]}</code> hat Unterdeckung ({deficit_sats:,} sats)\n"
+                    f"Kaufe {topup_fiat:.2f} {currency} nach…")
+            buy = exchange.buy_btc_market(topup_fiat)
+            withdrawal = exchange.withdraw_btc("", buy.btc_amount)
+            log.info(f"topup {offer_id[:12]}: withdrawal {withdrawal.withdrawal_id} ({buy.btc_amount:.8f} BTC)")
+            if self.notifier:
+                self.notifier._send(
+                    f"✅ <b>Top-Up gesendet</b>\n"
+                    f"{buy.btc_amount:.8f} BTC → Hot Wallet\n"
+                    f"Withdrawal: <code>{withdrawal.withdrawal_id}</code>")
+        except Exception as e:
+            log.error(f"topup {offer_id[:12]}: {e}")
+            if self.notifier:
+                self.notifier._send(f"❌ <b>Top-Up fehlgeschlagen</b>\nOffer: <code>{offer_id[:16]}</code>\n{str(e)[:200]}")
 
     async def cmd_buy(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Kaufe BTC auf Kraken und sende zur Hot Wallet"""
@@ -1306,7 +1366,7 @@ class TelegramBot:
             await send_fn(f"Fehler: {e}")
 
     async def cmd_wallet(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Hot Wallet Balance anzeigen"""
+        """Hot Wallet Balance anzeigen — gesamt, allocated, frei"""
         if not self._auth(update) or not self.engine: return
         pconfig = self.engine.config.get("platforms", {}).get("peach", {})
         addr = pconfig.get("refund_address", "")
@@ -1316,25 +1376,57 @@ class TelegramBot:
         loop = asyncio.get_event_loop()
         try:
             from fund_from_wallet import get_utxos
+            from core.engine import SpotPriceProvider
             utxos = await loop.run_in_executor(None, get_utxos, addr)
-            total = sum(u["value"] for u in utxos)
-            confirmed = len(utxos)
+            confirmed = [u for u in utxos if u.get("status", {}).get("confirmed", False)]
+            unconfirmed = [u for u in utxos if not u.get("status", {}).get("confirmed", False)]
+            total_conf = sum(u["value"] for u in confirmed)
+            total_unconf = sum(u["value"] for u in unconfirmed)
+
             try:
-                from core.engine import SpotPriceProvider
                 spot = await loop.run_in_executor(None, SpotPriceProvider.get_spot_chf)
-                fiat_str = f" ≈ {total / 1e8 * spot:,.2f} CHF"
+                def chf(sats): return f" ≈ {sats / 1e8 * spot:,.2f} CHF"
             except Exception:
-                fiat_str = ""
+                def chf(sats): return ""
+
+            # Allocated: pending unfunded escrows
+            with self.engine._escrow_lock:
+                pending_unfunded = [
+                    (oid, info) for oid, info in self.engine.pending_escrows.items()
+                    if not info.get("funded")
+                ]
+            allocated_sats = sum(info["amount_sats"] for _, info in pending_unfunded)
+            free_sats = total_conf - allocated_sats
+
             lines = [f"<b>Hot Wallet</b>\n<code>{addr}</code>\n"]
-            lines.append(f"Gesamt: <b>{total:,} sats</b>{fiat_str}")
-            lines.append(f"UTXOs: {confirmed}")
+
+            lines.append(f"Confirmed:   <b>{total_conf:,} sats</b>{chf(total_conf)}")
+            if total_unconf:
+                lines.append(f"Unconfirmed: {total_unconf:,} sats{chf(total_unconf)} ⏳")
+
+            lines.append("")
+            if pending_unfunded:
+                lines.append(f"Allocated:   <b>{allocated_sats:,} sats</b>{chf(allocated_sats)}")
+                for oid, info in pending_unfunded:
+                    status = "⏳ funding" if info.get("funding_in_progress") else "⚠️ waiting"
+                    deficit = info["amount_sats"] - total_conf
+                    deficit_str = f" <i>(−{deficit:,} sats fehlen)</i>" if deficit > 0 else ""
+                    lines.append(f"  • <code>{oid[:16]}</code> {info['amount_sats']:,} sats {status}{deficit_str}")
+                if free_sats >= 0:
+                    lines.append(f"Frei:        <b>{free_sats:,} sats</b>{chf(free_sats)}")
+                else:
+                    lines.append(f"Frei:        ⚠️ <b>−{abs(free_sats):,} sats</b> (Unterdeckung)")
+            else:
+                lines.append(f"Frei:        <b>{free_sats:,} sats</b>{chf(free_sats)}")
+
             if utxos:
-                lines.append("\n<b>UTXOs</b>")
+                lines.append(f"\n<b>UTXOs</b> ({len(confirmed)} confirmed, {len(unconfirmed)} unconfirmed)")
                 for u in utxos[:8]:
-                    txid_short = u['txid'][:12]
-                    lines.append(f"  <code>{txid_short}…</code>:{u['vout']} | {u['value']:,} sats")
+                    icon = "✓" if u.get("status", {}).get("confirmed") else "⏳"
+                    lines.append(f"  {icon} <code>{u['txid'][:12]}…</code>:{u['vout']} | {u['value']:,} sats")
                 if len(utxos) > 8:
                     lines.append(f"  … und {len(utxos)-8} weitere")
+
             await update.message.reply_text("\n".join(lines), parse_mode="HTML")
         except Exception as e:
             await update.message.reply_text(f"Fehler: {e}")
