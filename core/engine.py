@@ -180,6 +180,7 @@ class TradingEngine:
         self._last_stale_check = None
         self._last_consolidation_check = None
         self._last_auto_buy_check = 0
+        self._last_auto_fund_wallet_check = 0
         self._last_contracted_offers_save = 0
         self._platform_down_since = {}     # {name: timestamp} — when platform first became unreachable
         self._platform_down_notified = set()  # platforms where outage alert was already sent
@@ -324,6 +325,7 @@ class TradingEngine:
         self._check_pending_refunds()
         self._auto_consolidate_utxos()
         self._auto_buy_escrow_check()
+        self._auto_fund_wallet_check()
         self._prune_tracking_sets()
         tick_duration = time.time() - tick_start
         if tick_duration > self.poll_interval:
@@ -372,6 +374,13 @@ class TradingEngine:
         self._last_auto_buy_check = now
         if self.paused or not self.notifier:
             return
+        # Don't trigger new buys while an escrow is waiting to be funded — prevents
+        # concurrent withdrawals competing for the same UTXOs (would leave one underfunded).
+        with self._escrow_lock:
+            unfunded = [oid for oid, info in self.pending_escrows.items() if not info.get("funded")]
+        if unfunded:
+            log.info(f"auto_buy_escrow: skipping — {len(unfunded)} offer(s) still awaiting funding")
+            return
         amounts = cfg.get("amounts", [500, 400, 300, 200])
         exclude_methods = cfg.get("exclude_methods", ["revolut"])
         for ex in self.exchanges.values():
@@ -385,6 +394,59 @@ class TradingEngine:
                         break  # one offer per exchange per cycle
             except Exception as e:
                 log.warning(f"auto_buy_escrow check {ex.name}: {e}")
+
+    def _auto_fund_wallet_check(self):
+        """Create a Peach offer for any unallocated confirmed BTC on the hot wallet.
+        Runs every 5 min. Only triggers when unallocated balance >= min_wallet_fund_sats
+        (config key auto_buy_escrow.min_wallet_fund_sats, default 120000 ≈ 100 CHF).
+        """
+        cfg = self.config.get("auto_buy_escrow", {})
+        if not cfg.get("enabled") or self.paused or not self.notifier:
+            return
+        now = time.time()
+        if now - self._last_auto_fund_wallet_check < 300:
+            return
+        self._last_auto_fund_wallet_check = now
+
+        pconfig = self.config.get("platforms", {}).get("peach", {})
+        hot_wallet_addr = pconfig.get("refund_address", "")
+        if not hot_wallet_addr:
+            return
+        try:
+            from fund_from_wallet import get_utxos
+            utxos = get_utxos(hot_wallet_addr)
+            confirmed_sats = sum(u["value"] for u in utxos
+                                 if u.get("status", {}).get("confirmed", False))
+        except Exception as e:
+            log.debug(f"auto_fund_wallet: UTXO check failed: {e}")
+            return
+
+        with self._escrow_lock:
+            # Don't create a new offer while any escrow is still waiting to be funded —
+            # those UTXOs are already claimed.
+            pending_unfunded = [info for info in self.pending_escrows.values()
+                                if not info.get("funded")]
+            reserved_sats = sum(info["amount_sats"] for info in pending_unfunded)
+
+        if pending_unfunded:
+            return
+
+        # Minimum CHF value to justify a new offer — converted to sats at current price
+        min_chf = cfg.get("min_wallet_fund_chf", 100)
+        fee_buffer = 5000
+        unallocated_sats = confirmed_sats - reserved_sats
+        try:
+            spot_chf = SpotPriceProvider.get_spot_chf()
+            min_threshold = int(min_chf / spot_chf * 1e8)
+        except Exception:
+            min_threshold = 120_000  # fallback ~100 CHF if price unavailable
+        if unallocated_sats < min_threshold + fee_buffer:
+            log.debug(f"auto_fund_wallet: {unallocated_sats:,} sats < {min_chf} CHF ({min_threshold:,} sats) — skipping")
+            return
+
+        exclude_methods = cfg.get("exclude_methods", ["revolut"])
+        log.info(f"auto_fund_wallet: {unallocated_sats:,} unallocated sats on hot wallet — creating offer")
+        self.notifier.trigger_auto_fund_wallet(unallocated_sats - fee_buffer, exclude_methods)
 
     def _auto_consolidate_utxos(self):
         """Consolidate hot wallet UTXOs when idle and fees are low. Runs every 30 min."""

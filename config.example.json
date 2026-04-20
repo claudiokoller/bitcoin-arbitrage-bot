@@ -22,6 +22,14 @@
             "withdrawal_key": "HotWallet"
         }
     },
+    "auto_buy_escrow": {
+        "enabled": true,
+        "check_interval_sec": 600,
+        "amounts": [500, 400, 300, 200],
+        "premium": 5.5,
+        "exclude_methods": ["revolut"],
+        "min_wallet_fund_chf": 100
+    },
     "platforms": {
         "peach": {
             "enabled": true,

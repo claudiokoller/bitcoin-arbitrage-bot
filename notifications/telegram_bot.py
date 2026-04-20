@@ -610,6 +610,64 @@ class TelegramBot:
             daemon=True, name=f"auto-buy-{exchange.name[:10]}"
         ).start()
 
+    def trigger_auto_fund_wallet(self, amount_sats, exclude_methods=None):
+        """Called by engine when unallocated confirmed BTC sits on the hot wallet."""
+        threading.Thread(
+            target=self._run_auto_fund_wallet,
+            args=(amount_sats, exclude_methods),
+            daemon=True, name="auto-fund-wallet"
+        ).start()
+
+    def _run_auto_fund_wallet(self, amount_sats, exclude_methods=None):
+        """Create a Peach offer and fund it directly from the hot wallet (no Kraken buy)."""
+        peach = self.engine.platforms.get("peach")
+        if not peach:
+            return
+        pconfig = self.engine.config.get("platforms", {}).get("peach", {})
+        hot_wallet_addr = pconfig.get("refund_address", "")
+        if not hot_wallet_addr:
+            return
+
+        label = f" (ohne {', '.join(exclude_methods)})" if exclude_methods else ""
+        log.info(f"auto_fund_wallet: creating offer for {amount_sats:,} sats{label}")
+        try:
+            min_sats = pconfig.get("min_amount_sats", 10000)
+            max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            payment_methods = self._filter_payment_methods(
+                pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
+            auto_cfg = self.engine.config.get("auto_buy_escrow", {})
+            premium = auto_cfg.get("premium", 5.5)
+
+            offer = peach.create_sell_offer(min_sats=min_sats, max_sats=max_sats,
+                                            premium_pct=premium, payment_methods=payment_methods)
+            escrow_addr = offer.escrow_address
+            if not escrow_addr:
+                try:
+                    info = peach.create_escrow(offer.id)
+                    escrow_addr = info.get("address", "")
+                except Exception as e:
+                    log.warning(f"auto_fund_wallet create_escrow: {e}")
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
+            log.info(f"auto_fund_wallet: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+
+            self.notifier._send(
+                f"<b>🏦 Auto Fund from Wallet{label}</b>\n"
+                f"Offer <code>{offer.id[:16]}</code> @ {premium:.1f}%\n"
+                f"{min_sats:,}–{max_sats:,} sats\n"
+                f"ℹ️ BTC bereits auf Hot Wallet — kein Kraken-Kauf")
+
+            if not escrow_addr:
+                log.error(f"auto_fund_wallet: no escrow_addr for {offer.id}")
+                return
+            self._save_pending_funding(offer.id, escrow_addr, max_sats, hot_wallet_addr)
+            threading.Thread(
+                target=self._poll_and_fund_escrow,
+                args=(offer.id, escrow_addr, max_sats, hot_wallet_addr),
+                daemon=True, name=f"fund-{offer.id[:8]}").start()
+        except Exception as e:
+            log.exception(f"auto_fund_wallet: {e}")
+            self.notifier._send(f"❌ <b>Auto Fund Wallet Fehler</b>\n{str(e)[:300]}")
+
     def _run_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
         """Synchronous buy-escrow flow for auto-trigger. Mirrors _execute_buy_escrow."""
         currency = exchange.get_fiat_currency()
@@ -1144,6 +1202,21 @@ class TelegramBot:
                         # Don't fund if we can't verify offer status (offer may be cancelled/expired)
                         log.warning(f"Poll fund {offer_id[:12]}: escrow status check failed: {e}, skipping this cycle")
                         continue
+
+                # FIFO: if another offer is ahead in the queue (inserted earlier into
+                # pending_escrows), wait for it to fund first.  This prevents two concurrent
+                # poll threads from both grabbing the same UTXOs, which would leave the
+                # second escrow permanently under-funded (select_utxos merges both UTXOs
+                # for the first escrow; the change back is less than the second needs).
+                with self.engine._escrow_lock:
+                    first_pending = next(
+                        (oid for oid, info in self.engine.pending_escrows.items()
+                         if not info.get("funded") and info.get("funding_in_progress")),
+                        None
+                    )
+                if first_pending and first_pending != offer_id:
+                    log.debug(f"Poll fund {offer_id[:12]}: waiting for {first_pending[:12]} to fund first")
+                    continue
 
                 utxos = get_utxos(hot_wallet_addr)
                 # Use confirmed UTXOs only (matching fund_escrow's behavior)
