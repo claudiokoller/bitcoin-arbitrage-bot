@@ -1045,7 +1045,14 @@ class TelegramBot:
         loop = asyncio.get_event_loop()
         try:
             spot = await loop.run_in_executor(None, exchange.get_spot_price)
-            amount_sats = int((amount_fiat / spot) * 1e8 * 0.99)
+            withdraw_fee_sats = 0
+            if hasattr(exchange, "get_withdrawal_fee_sats"):
+                try:
+                    withdraw_fee_sats = await loop.run_in_executor(None, exchange.get_withdrawal_fee_sats)
+                except Exception:
+                    withdraw_fee_sats = 15_000
+            gross_sats = int((amount_fiat / spot) * 1e8)
+            amount_sats = int(gross_sats * 0.99) - withdraw_fee_sats
             min_sats = pconfig.get("min_amount_sats", 10000)
             max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
             payment_methods = self._filter_payment_methods(
