@@ -1200,22 +1200,12 @@ class TelegramBot:
         import time
         from fund_from_wallet import get_utxos, fund_escrow
         max_wait = 14400  # 4h
-        fifo_stale_timeout = 7200  # 2h — treat predecessor as dead if stuck this long
-        topup_after = 300   # 5 min of insufficient balance → auto top-up
         start = time.time()
-        _insufficient_since = None
-        _topup_triggered = False
-
-        # Record when this thread started so FIFO can detect dead threads
-        with self.engine._escrow_lock:
-            if offer_id in self.engine.pending_escrows:
-                self.engine.pending_escrows[offer_id]["funding_started_at"] = start
 
         log.info(f"Polling hot wallet für Escrow {offer_id[:12]} ({amount_sats} sats)")
         while time.time() - start < max_wait:
             time.sleep(60)
             try:
-                # Check escrow/offer status to prevent double-funding or funding dead offers
                 platform = None
                 for p in self.engine.platforms.values():
                     if hasattr(p, 'get_escrow_status'):
@@ -1253,7 +1243,6 @@ class TelegramBot:
                 log.info(f"Hot Wallet: {available} sats verfügbar (brauche {amount_sats} + ~{fee_buffer} fee)")
 
                 if available >= amount_sats + fee_buffer:
-                    _insufficient_since = None
                     result = fund_escrow(self.engine.config, escrow_addr, amount_sats)
                     with self.engine._escrow_lock:
                         if offer_id in self.engine.pending_escrows:
@@ -1269,14 +1258,6 @@ class TelegramBot:
                             f"TXID: <code>{result['txid']}</code>\n"
                             f"Fee: {result['fee']} sats")
                     return
-                else:
-                    # Insufficient balance — track duration for auto top-up
-                    if _insufficient_since is None:
-                        _insufficient_since = time.time()
-                    elif not _topup_triggered and time.time() - _insufficient_since >= topup_after:
-                        deficit_sats = amount_sats + fee_buffer - available
-                        self._try_topup_for_escrow(offer_id, deficit_sats)
-                        _topup_triggered = True  # only once per poll session
 
             except Exception as e:
                 log.warning(f"Poll fund {offer_id[:12]}: {e}")
@@ -1290,38 +1271,6 @@ class TelegramBot:
                 f"⚠️ <b>Timeout</b>: Escrow nach {max_wait//3600}h nicht finanziert (wird bei Restart erneut versucht)\n"
                 f"Offer: <code>{offer_id}</code> | {amount_sats:,} sats")
 
-    def _try_topup_for_escrow(self, offer_id, deficit_sats):
-        """Buy the deficit amount on Kraken and withdraw to hot wallet to cover a stuck escrow."""
-        exchange = self.engine.get_best_exchange()
-        if not exchange:
-            log.warning(f"topup {offer_id[:12]}: no exchange available")
-            return
-        try:
-            spot = exchange.get_spot_price()
-            currency = exchange.get_fiat_currency() if hasattr(exchange, "get_fiat_currency") else "?"
-            # Add 5% buffer on top of deficit to account for withdrawal fee and rounding
-            topup_sats = int(deficit_sats * 1.05) + 15_000
-            topup_fiat = topup_sats / 1e8 * spot
-            min_buy = 10.0  # don't buy less than 10 fiat
-            topup_fiat = max(topup_fiat, min_buy)
-            log.info(f"topup {offer_id[:12]}: buying {topup_fiat:.2f} {currency} to cover {deficit_sats:,} sats deficit")
-            if self.notifier:
-                self.notifier._send(
-                    f"⚠️ <b>Auto Top-Up</b>\n"
-                    f"Offer <code>{offer_id[:16]}</code> hat Unterdeckung ({deficit_sats:,} sats)\n"
-                    f"Kaufe {topup_fiat:.2f} {currency} nach…")
-            buy = exchange.buy_btc_market(topup_fiat)
-            withdrawal = exchange.withdraw_btc("", buy.btc_amount)
-            log.info(f"topup {offer_id[:12]}: withdrawal {withdrawal.withdrawal_id} ({buy.btc_amount:.8f} BTC)")
-            if self.notifier:
-                self.notifier._send(
-                    f"✅ <b>Top-Up gesendet</b>\n"
-                    f"{buy.btc_amount:.8f} BTC → Hot Wallet\n"
-                    f"Withdrawal: <code>{withdrawal.withdrawal_id}</code>")
-        except Exception as e:
-            log.error(f"topup {offer_id[:12]}: {e}")
-            if self.notifier:
-                self.notifier._send(f"❌ <b>Top-Up fehlgeschlagen</b>\nOffer: <code>{offer_id[:16]}</code>\n{str(e)[:200]}")
 
     async def cmd_buy(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Kaufe BTC auf Kraken und sende zur Hot Wallet"""
