@@ -34,12 +34,27 @@ class TelegramNotifier:
     def notify_daily_summary(self, s):
         self._send(f"<b>Heute:</b> {s['count']} Trades | {s['total_profit']:.2f} CHF")
 
+    def trigger_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
+        bot = getattr(self, 'bot', None)
+        if bot:
+            bot.trigger_auto_buy_escrow(exchange, amount_fiat, exclude_methods)
+        else:
+            log.warning("trigger_auto_buy_escrow: no TelegramBot reference")
+
+    def trigger_auto_fund_wallet(self, amount_sats, exclude_methods=None):
+        bot = getattr(self, 'bot', None)
+        if bot:
+            bot.trigger_auto_fund_wallet(amount_sats, exclude_methods)
+        else:
+            log.warning("trigger_auto_fund_wallet: no TelegramBot reference")
+
 class TelegramBot:
     def __init__(self, token, chat_id, engine=None):
         self.token = token
         self.chat_id = str(chat_id)
         self.engine = engine
         self.notifier = TelegramNotifier(token, chat_id)
+        self.notifier.bot = self
         self._funding_lock = threading.Lock()
         self._fundings_file = os.path.join(os.path.dirname(__file__), "..", "pending_wallet_fundings.json")
         self._pending_buy_params = {}  # {chat_id: {amount, premium, command}}
@@ -1225,24 +1240,7 @@ class TelegramBot:
                                 self.notifier._send(f"🚨 <b>WRONG_FUNDING_AMOUNT</b>\nOffer: <code>{offer_id}</code>\nManuelle Prüfung nötig!")
                             return
                     except Exception as e:
-                        log.warning(f"Poll fund {offer_id[:12]}: escrow status check failed: {e}, skipping this cycle")
-                        continue
-
-                # FIFO: only the first inserted pending offer funds; later ones wait.
-                # Dead-thread guard: skip a predecessor that has been stuck > fifo_stale_timeout.
-                with self.engine._escrow_lock:
-                    first_pending = None
-                    for oid, info in self.engine.pending_escrows.items():
-                        if not info.get("funded") and info.get("funding_in_progress"):
-                            started = info.get("funding_started_at", time.time())
-                            if time.time() - started > fifo_stale_timeout:
-                                log.warning(f"Poll fund: skipping stale predecessor {oid[:12]} (stuck >{fifo_stale_timeout//3600}h)")
-                                continue
-                            first_pending = oid
-                            break
-                if first_pending and first_pending != offer_id:
-                    log.debug(f"Poll fund {offer_id[:12]}: waiting for {first_pending[:12]} to fund first")
-                    continue
+                        log.debug(f"Poll fund {offer_id[:12]}: escrow status check failed: {e}, proceeding to UTXO check")
 
                 utxos = get_utxos(hot_wallet_addr)
                 confirmed = [u for u in utxos if u.get('status', {}).get('confirmed', False)]
