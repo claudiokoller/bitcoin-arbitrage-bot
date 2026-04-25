@@ -1054,6 +1054,8 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <div class="sb-lbl">&#x1f4b0; Kraken Balance</div>
     <div class="m" style="border-left-color:#f59e0b"><div class="m-row"><span class="m-lbl">CHF</span><span class="m-icon">&#x1f1e8;&#x1f1ed;</span></div><div class="m-val" id="chfBal">--</div></div>
     <div class="m blue"><div class="m-row"><span class="m-lbl">EUR</span><span class="m-icon">&#x1f1ea;&#x1f1fa;</span></div><div class="m-val" id="eurBal">--</div></div>
+    <div class="m" style="border-left-color:#22c55e"><div class="m-row"><span class="m-lbl">USD</span><span class="m-icon">&#x1f1fa;&#x1f1f8;</span></div><div class="m-val" id="usdBal">--</div></div>
+    <div class="m" style="border-left-color:#14b8a6"><div class="m-row"><span class="m-lbl">USDT</span><span class="m-icon">&#x1f4b5;</span></div><div class="m-val" id="usdtBal">--</div></div>
     <div class="m orange"><div class="m-row"><span class="m-lbl">BTC</span><span class="m-icon">&#x20bf;</span></div><div class="m-val" id="btcBal">--</div></div>
 
     <div class="sb-lbl">&#x1f4c8; Profit</div>
@@ -1243,6 +1245,10 @@ async function loadStatus(){
     else document.getElementById('chfBal').textContent='--';
     if(fb.EUR!==undefined)document.getElementById('eurBal').textContent=Number(fb.EUR).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' EUR';
     else if(ex.eur!==undefined)document.getElementById('eurBal').textContent=Number(ex.eur).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+((ex.currency)||'CHF');
+    if(fb.USD!==undefined)document.getElementById('usdBal').textContent=Number(fb.USD).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' USD';
+    else document.getElementById('usdBal').textContent='--';
+    if(fb.USDT!==undefined)document.getElementById('usdtBal').textContent=Number(fb.USDT).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' USDT';
+    else document.getElementById('usdtBal').textContent='--';
     if(ex.btc!==undefined)document.getElementById('btcBal').textContent=Number(ex.btc||0).toFixed(8)+' BTC';
     document.getElementById('lastUpd').textContent=new Date().toLocaleTimeString('de-DE');
     }catch(e){console.error(e)}

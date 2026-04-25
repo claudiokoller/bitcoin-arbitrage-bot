@@ -160,7 +160,9 @@ class TelegramBot:
         for n, es in s.get("exchanges",{}).items():
             if es.get("online"):
                 cur = es.get('currency', 'CHF')
-                elines.append(f"  {n}: {es.get('fiat_balance',0):,.0f} {cur}")
+                bal = es.get('fiat_balance', 0)
+                fmt = f"{bal:,.2f}" if cur in ("USDT", "USD") else f"{bal:,.0f}"
+                elines.append(f"  {n}: {fmt} {cur}")
             else:
                 elines.append(f"  {n}: offline")
         pl = "\n".join(plines)
