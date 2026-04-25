@@ -1,6 +1,5 @@
 import asyncio, json, logging, os, threading
 from datetime import datetime
-from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from core.models import OfferStatus
@@ -582,7 +581,6 @@ class TelegramBot:
         async def _send(text, **kw):
             await bot.send_message(chat_id=chat_id, text=text, **kw)
         if command == "buy_escrow" and currency == "BTC":
-            # BTC flow: amount is in sats, no Kraken buy — just withdraw existing BTC
             await self._execute_escrow(exchange, int(params["amount"]), params.get("premium"), send_fn=_send, exclude_methods=params.get("exclude_methods"))
         elif command == "buy_escrow":
             await self._execute_buy_escrow(exchange, params["amount"], params.get("premium"), send_fn=_send, exclude_methods=params.get("exclude_methods"))
@@ -590,8 +588,6 @@ class TelegramBot:
             await self._execute_buy(exchange, params["amount"], send_fn=_send)
         elif command == "sell":
             await self._execute_sell(exchange, params.get("amount_btc"), send_fn=_send)
-        elif command == "escrow":
-            await self._execute_escrow(exchange, params["requested_sats"], params["premium"], send_fn=_send, exclude_methods=params.get("exclude_methods"))
 
     def _get_available_currencies(self):
         """Get list of fiat currencies from configured exchanges, plus BTC if available."""
@@ -933,6 +929,63 @@ class TelegramBot:
         except Exception as e:
             await _tg(f"❌ Fehler: {str(e)[:400]}")
             log.exception(f"fund: {e}")
+
+    async def _execute_escrow(self, exchange, requested_sats, premium, send_fn, exclude_methods=None):
+        """Create Peach offer and withdraw existing BTC from Kraken. Used by /buy_escrow BTC flow."""
+        peach = self.engine.platforms.get("peach")
+        if not peach:
+            await send_fn("Peach nicht verfügbar."); return
+        pconfig = self.engine.config.get("platforms", {}).get("peach", {})
+        hot_wallet_addr = pconfig.get("refund_address", "")
+        if not hot_wallet_addr:
+            await send_fn("Kein refund_address in config.json."); return
+
+        async def _tg(text, **kw):
+            try: await send_fn(text, **kw)
+            except Exception as e: log.warning(f"TG send failed: {e}")
+
+        label = f" (ohne {', '.join(exclude_methods)})" if exclude_methods else ""
+        loop = asyncio.get_event_loop()
+        try:
+            spot = await loop.run_in_executor(None, exchange.get_spot_price)
+            amount_fiat = (requested_sats / 1e8) * spot
+            min_sats = pconfig.get("min_amount_sats", 10000)
+            max_sats = max(min(requested_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            payment_methods = self._filter_payment_methods(
+                pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
+            sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
+            payment_data, _ = self._get_sepa_payment_data(pconfig, sepa_idx)
+
+            await _tg(f"<b>BTC-Escrow{label}</b>\n{requested_sats:,} sats (~{amount_fiat:.0f} {exchange.get_fiat_currency()})\n\nSchritt 1/2: Offer erstellen…", parse_mode="HTML")
+
+            offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
+                min_sats=min_sats, max_sats=max_sats, premium_pct=premium,
+                payment_methods=payment_methods, payment_data=payment_data))
+            escrow_addr = offer.escrow_address
+            if not escrow_addr:
+                try:
+                    info = await loop.run_in_executor(None, lambda: peach.create_escrow(offer.id))
+                    escrow_addr = info.get("address", "")
+                except Exception as e:
+                    log.warning(f"create_escrow: {e}")
+
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            log.info(f"btc_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+
+            await _tg(f"✅ Offer: <code>{offer.id[:16]}</code> @ {premium}%\n{min_sats:,}–{max_sats:,} sats\n\nSchritt 2/2: Kraken-Withdrawal…", parse_mode="HTML")
+            actual_balance = await loop.run_in_executor(None, exchange.get_btc_balance)
+            withdrawal = await loop.run_in_executor(None, lambda: exchange.withdraw_btc("", actual_balance))
+            await _tg(f"✅ {actual_balance:.8f} BTC withdrawn\nWithdrawal-ID: <code>{withdrawal.withdrawal_id}</code>\n\nWarte auf Bestätigung…", parse_mode="HTML")
+
+            if not escrow_addr:
+                await _tg(f"⚠️ Keine Escrow-Adresse für Offer <code>{offer.id}</code>", parse_mode="HTML"); return
+            self._save_pending_funding(offer.id, escrow_addr, max_sats, hot_wallet_addr)
+            threading.Thread(target=self._poll_and_fund_escrow,
+                args=(offer.id, escrow_addr, max_sats, hot_wallet_addr),
+                daemon=True, name=f"fund-{offer.id[:8]}").start()
+        except Exception as e:
+            await _tg(f"❌ Fehler: {str(e)[:400]}")
+            log.exception(f"btc_escrow: {e}")
 
     async def cmd_buy_escrow(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Kaufe auf Kraken → Hot Wallet → erstelle Peach-Offer → finanziere Escrow automatisch"""
@@ -1303,11 +1356,8 @@ class TelegramBot:
         for n, p in self.engine.platforms.items():
             try:
                 all_contracts = await loop.run_in_executor(None, p.get_contracts)
-                # Only show active contracts (not completed/cancelled/stale)
-                _ignore_offers = {"335679", "336216", "336271", "336362", "336380"}
                 contracts = [c for c in all_contracts if c.status not in (
-                    OfferStatus.COMPLETED, OfferStatus.CANCELLED)
-                    and c.offer_id not in _ignore_offers]
+                    OfferStatus.COMPLETED, OfferStatus.CANCELLED)]
                 if not contracts:
                     lines.append(f"<b>{n}</b>: keine")
                     continue
