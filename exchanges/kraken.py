@@ -56,6 +56,8 @@ class KrakenExchange(ExchangeBase):
         pair = self.trading_pair.upper()
         if "CHF" in pair:
             val = float(b.get("ZCHF", b.get("CHF", "0")))
+        elif "USDT" in pair:
+            val = float(b.get("USDT", "0"))
         elif "USD" in pair:
             val = float(b.get("ZUSD", b.get("USD", "0")))
         else:
@@ -66,6 +68,7 @@ class KrakenExchange(ExchangeBase):
     def get_fiat_currency(self):
         pair = self.trading_pair.upper()
         if "CHF" in pair: return "CHF"
+        elif "USDT" in pair: return "USDT"
         elif "USD" in pair: return "USD"
         else: return "EUR"
     def get_btc_balance(self, cached=False):
@@ -113,6 +116,25 @@ class KrakenExchange(ExchangeBase):
         price = float(order.get("price", "0"))
         log.info(f"SOLD: {btc:.8f} BTC for {cost:.2f} {currency} (fee: {fee:.4f}, price: {price:.2f})")
         return SellResult(order_id=txids[0], btc_sold=btc, fiat_received=cost, fee_fiat=fee, effective_price=price)
+
+    def get_withdrawal_fee_sats(self, amount_btc=0.005) -> int:
+        """Return Kraken's BTC withdrawal fee in sats via WithdrawInfo. Cached 10 min."""
+        cache = getattr(self, "_withdrawal_fee_cache", None)
+        if cache and time.time() - cache[1] < 600:
+            return cache[0]
+        try:
+            data = {"asset": "XBT", "amount": f"{amount_btc:.8f}"}
+            if self.withdrawal_key:
+                data["key"] = self.withdrawal_key
+            info = self._private("WithdrawInfo", data)
+            fee_btc = float(info.get("fee", 0))
+            fee_sats = int(fee_btc * 1e8)
+            self._withdrawal_fee_cache = (fee_sats, time.time())
+            log.info(f"Kraken withdrawal fee: {fee_sats:,} sats")
+            return fee_sats
+        except Exception as e:
+            log.warning(f"get_withdrawal_fee_sats: {e} — using default 15000")
+            return 15_000
 
     def withdraw_btc(self, address, amount_btc):
         log.info(f"Withdraw {float(amount_btc):.8f} BTC -> {address[:20]}...")

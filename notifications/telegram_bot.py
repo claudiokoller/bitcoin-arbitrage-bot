@@ -390,7 +390,9 @@ class TelegramBot:
 
             # Payment method breakdown (only methods I offer)
             method_labels = {"twint": "Twint", "revolut": "Revolut", "wise": "Wise",
-                            "sepa": "SEPA", "instantSepa": "Instant SEPA"}
+                            "sepa": "SEPA", "instantSepa": "Instant SEPA",
+                            "solanausdt": "USDT (Solana)",
+                            "arbitrumusdt": "USDT (Arbitrum)"}
             mlines = []
             all_methods = sorted(my_method_set,
                                 key=lambda m: method_counts_buy.get(m, 0), reverse=True)
