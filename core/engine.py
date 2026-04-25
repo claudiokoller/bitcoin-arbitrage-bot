@@ -776,6 +776,7 @@ class TradingEngine:
             "wise": json.dumps({"userName": wise_user, "reference": ""}),
             "solanausdt": raw.get("solanausdt", ""),
             "arbitrumusdt": raw.get("arbitrumusdt", ""),
+            "ethereumusdt": raw.get("ethereumusdt", ""),
         }
         # Structured payment info for encryption (what the buyer sees)
         beneficiary = info.get("beneficiary", "")
@@ -787,6 +788,7 @@ class TradingEngine:
             "wise": info.get("wise", {"userName": wise_user, "reference": ""}),
             "solanausdt": info.get("solanausdt", {"address": raw.get("solanausdt", "")}),
             "arbitrumusdt": info.get("arbitrumusdt", {"address": raw.get("arbitrumusdt", "")}),
+            "ethereumusdt": info.get("ethereumusdt", {"address": raw.get("ethereumusdt", "")}),
         }
 
         sepa_accounts = pconfig.get("sepa_accounts", [])
