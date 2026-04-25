@@ -777,8 +777,6 @@ class TradingEngine:
             "solanausdt": raw.get("solanausdt", ""),
             "arbitrumusdt": raw.get("arbitrumusdt", ""),
             "ethereumusdt": raw.get("ethereumusdt", ""),
-            "baseusdt": raw.get("baseusdt", ""),
-            "bnbusdt": raw.get("bnbusdt", ""),
         }
         # Structured payment info for encryption (what the buyer sees)
         beneficiary = info.get("beneficiary", "")
@@ -791,8 +789,6 @@ class TradingEngine:
             "solanausdt": info.get("solanausdt", {"address": raw.get("solanausdt", "")}),
             "arbitrumusdt": info.get("arbitrumusdt", {"address": raw.get("arbitrumusdt", "")}),
             "ethereumusdt": info.get("ethereumusdt", {"address": raw.get("ethereumusdt", "")}),
-            "baseusdt": info.get("baseusdt", {"address": raw.get("baseusdt", "")}),
-            "bnbusdt": info.get("bnbusdt", {"address": raw.get("bnbusdt", "")}),
         }
 
         sepa_accounts = pconfig.get("sepa_accounts", [])
