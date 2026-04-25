@@ -383,7 +383,8 @@ class TradingEngine:
             log.info(f"auto_buy_escrow: skipping — {len(unfunded)} offer(s) still awaiting funding")
             return
         amounts = cfg.get("amounts", [500, 400, 300, 200])
-        exclude_methods = cfg.get("exclude_methods", ["revolut"])
+        mode = cfg.get("mode", "norev")
+        exclude_methods = [] if mode == "withrev" else cfg.get("exclude_methods", ["revolut"])
         for ex in self.exchanges.values():
             try:
                 fiat_balance = ex.get_fiat_balance()

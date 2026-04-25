@@ -145,6 +145,7 @@ class TelegramBot:
             "<b>Sonstiges</b>\n"
             "/cancel &lt;offer_id&gt; – Offer abbrechen\n"
             "/refunds – Offene Refunds\n"
+            "/auto – Auto Buy-Escrow Modus wechseln\n"
             "/reload – Config neu laden (kein Restart)\n"
             "/pause /resume – Bot steuern",
             parse_mode="HTML")
@@ -490,6 +491,8 @@ class TelegramBot:
             await self._handle_cancel_callback(q)
         elif q.data.startswith("confirm_cancel_"):
             await self._handle_confirm_cancel(q)
+        elif q.data.startswith("auto_"):
+            await self._handle_auto_callback(q)
     async def _handle_cancel_callback(self, q):
         """Show confirmation before cancelling"""
         data = q.data
@@ -1564,6 +1567,58 @@ class TelegramBot:
         except Exception as e:
             await send_fn(f"Fehler: {e}")
 
+    def _auto_status_text_and_markup(self):
+        cfg = self.engine.config.get("auto_buy_escrow", {})
+        enabled = cfg.get("enabled", False)
+        mode = cfg.get("mode", "norev")
+        status = "✅ Aktiv" if enabled else "⏸ Inaktiv"
+        mode_label = "Ohne Revolut" if mode == "norev" else "Mit Revolut"
+        interval = cfg.get("check_interval_sec", 600) // 60
+        premium = cfg.get("premium", 5.5)
+        text = (f"<b>Auto Buy-Escrow</b>\n"
+                f"Status: {status}\n"
+                f"Modus: {mode_label}\n"
+                f"Premium: {premium}% | Interval: {interval}min")
+        norev_mark = " ✓" if mode == "norev" else ""
+        withrev_mark = " ✓" if mode == "withrev" else ""
+        toggle_label = "⏸ Deaktivieren" if enabled else "▶️ Aktivieren"
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"Ohne Revolut{norev_mark}", callback_data="auto_norev"),
+             InlineKeyboardButton(f"Mit Revolut{withrev_mark}", callback_data="auto_withrev")],
+            [InlineKeyboardButton(toggle_label, callback_data="auto_toggle")],
+        ])
+        return text, markup
+
+    async def cmd_auto(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        """Zeigt und steuert den Auto Buy-Escrow Modus"""
+        if not self._auth(update) or not self.engine: return
+        text, markup = self._auto_status_text_and_markup()
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+
+    async def _handle_auto_callback(self, q):
+        if not self.engine: return
+        cfg = self.engine.config.get("auto_buy_escrow", {})
+        if q.data == "auto_norev":
+            cfg["mode"] = "norev"
+        elif q.data == "auto_withrev":
+            cfg["mode"] = "withrev"
+        elif q.data == "auto_toggle":
+            cfg["enabled"] = not cfg.get("enabled", False)
+        self.engine.config["auto_buy_escrow"] = cfg
+        # Persist to config.json
+        try:
+            import os as _os
+            config_path = _os.path.join(_os.path.dirname(__file__), "..", "config.json")
+            with open(config_path) as f:
+                disk_cfg = json.load(f)
+            disk_cfg["auto_buy_escrow"] = cfg
+            with open(config_path, "w") as f:
+                json.dump(disk_cfg, f, indent=2)
+        except Exception as e:
+            log.warning(f"auto callback: config save failed: {e}")
+        text, markup = self._auto_status_text_and_markup()
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=markup)
+
     async def cmd_reload(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Lädt config.json neu — inkl. Exchange-Keys und Peach-Credentials"""
         if not self._auth(update) or not self.engine: return
@@ -1593,7 +1648,7 @@ class TelegramBot:
 
     def build_app(self):
         app = Application.builder().token(self.token).build()
-        for cmd, fn in [("start",self.cmd_start),("status",self.cmd_status),("balance",self.cmd_balance),("offers",self.cmd_offers),("pause",self.cmd_pause),("resume",self.cmd_resume),("profit",self.cmd_profit),("market",self.cmd_market),("buy",self.cmd_buy),("escrow",self.cmd_escrow),("escrow_norev",self.cmd_escrow_norev),("fund",self.cmd_fund),("fund_norev",self.cmd_fund_norev),("buy_escrow",self.cmd_buy_escrow),("buy_escrow_norev",self.cmd_buy_escrow_norev),("wallet",self.cmd_wallet),("contracts",self.cmd_contracts),("sell",self.cmd_sell),("cancel",self.cmd_cancel),("refunds",self.cmd_refunds),("reload",self.cmd_reload)]:
+        for cmd, fn in [("start",self.cmd_start),("status",self.cmd_status),("balance",self.cmd_balance),("offers",self.cmd_offers),("pause",self.cmd_pause),("resume",self.cmd_resume),("profit",self.cmd_profit),("market",self.cmd_market),("buy",self.cmd_buy),("escrow",self.cmd_escrow),("escrow_norev",self.cmd_escrow_norev),("fund",self.cmd_fund),("fund_norev",self.cmd_fund_norev),("buy_escrow",self.cmd_buy_escrow),("buy_escrow_norev",self.cmd_buy_escrow_norev),("wallet",self.cmd_wallet),("contracts",self.cmd_contracts),("sell",self.cmd_sell),("cancel",self.cmd_cancel),("refunds",self.cmd_refunds),("reload",self.cmd_reload),("auto",self.cmd_auto)]:
             app.add_handler(CommandHandler(cmd, fn))
         app.add_handler(CallbackQueryHandler(self.handle_callback))
         return app
