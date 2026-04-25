@@ -232,13 +232,14 @@ class TradingEngine:
         log.info(f"Exchange: {e.name}")
     def set_notifier(self, n): self.notifier = n
 
-    def add_pending_escrow(self, offer_id, escrow_addr, amount_sats, premium):
+    def add_pending_escrow(self, offer_id, escrow_addr, amount_sats, premium, sepa_account_index=0):
         """Register a new offer in pending_escrows and log it. Thread-safe."""
         with self._escrow_lock:
             self.pending_escrows[offer_id] = {
                 "platform": "peach", "escrow_address": escrow_addr,
                 "amount_sats": amount_sats, "funded": False,
-                "funding_in_progress": True, "premium": premium}
+                "funding_in_progress": True, "premium": premium,
+                "sepa_account_index": sepa_account_index}
         self.trade_logger.log_event("peach", "offer_created", offer_id)
     def get_best_exchange(self):
         best = None
@@ -783,6 +784,8 @@ class TradingEngine:
             "wise": info.get("wise", {"userName": wise_user, "reference": ""}),
         }
 
+        sepa_accounts = pconfig.get("sepa_accounts", [])
+
         with self._escrow_lock:
             funded_offers = {oid:info for oid,info in self.pending_escrows.items() if info["platform"]==name and info.get("funded")}
         for oid, info in funded_offers.items():
@@ -790,6 +793,21 @@ class TradingEngine:
             skip_until = info.get("_401_skip_until", 0)
             if skip_until and time.time() < skip_until:
                 continue
+
+            # Per-offer SEPA account rotation: use the account index stored at offer creation
+            offer_payment_data_map = dict(payment_data_map)
+            offer_payment_info_map = dict(payment_info_map)
+            sepa_idx = info.get("sepa_account_index", 0)
+            if sepa_accounts and sepa_idx < len(sepa_accounts):
+                acct = sepa_accounts[sepa_idx]
+                iban = acct["iban"].replace(" ", "")
+                bic = acct.get("bic", "")
+                ben = acct.get("beneficiary", beneficiary)
+                offer_payment_data_map["sepa"] = iban
+                offer_payment_data_map["instantSepa"] = iban
+                offer_payment_info_map["sepa"] = {"iban": iban, "beneficiary": ben, "bic": bic}
+                offer_payment_info_map["instantSepa"] = {"iban": iban, "beneficiary": ben, "bic": bic}
+
             try:
                 # Use v069 API (the working endpoint!)
                 if hasattr(platform, 'check_trade_requests'):
@@ -809,12 +827,12 @@ class TradingEngine:
                         currency = tr.get("currency", "")
 
                         # Get the raw payment data for this method
-                        raw_data = payment_data_map.get(method, "")
+                        raw_data = offer_payment_data_map.get(method, "")
                         if not raw_data:
                             log.warning(f"{name}: No payment data for method {method}, trying next request")
                             continue
 
-                        method_info = payment_info_map.get(method, {})
+                        method_info = offer_payment_info_map.get(method, {})
                         platform.accept_trade_request(oid, buyer_id, method, raw_data, trade_request_data=tr, payment_info=method_info)
                         log.info(f"{name}: ACCEPTED trade request from {buyer_id[:12]} via {method}")
                         if self.notifier:

@@ -57,9 +57,53 @@ class TelegramBot:
         self.notifier.bot = self
         self._funding_lock = threading.Lock()
         self._fundings_file = os.path.join(os.path.dirname(__file__), "..", "pending_wallet_fundings.json")
+        self._sepa_index_file = os.path.join(os.path.dirname(__file__), "..", "sepa_rotation.json")
         self._pending_buy_params = {}  # {chat_id: {amount, premium, command}}
+
     def _auth(self, update):
         return str(update.effective_chat.id) == self.chat_id
+
+    def _next_sepa_index(self, num_accounts):
+        """Return current SEPA account index and advance for next offer. Persists to disk."""
+        if num_accounts <= 1:
+            return 0
+        try:
+            with open(self._sepa_index_file) as f:
+                idx = json.load(f).get("index", 0)
+        except (FileNotFoundError, ValueError):
+            idx = 0
+        with open(self._sepa_index_file, "w") as f:
+            json.dump({"index": (idx + 1) % num_accounts}, f)
+        return idx % num_accounts
+
+    def _get_sepa_payment_data(self, pconfig, sepa_idx):
+        """Build payment_data dict and info dict for offer creation with the given SEPA account."""
+        from platforms.peach import make_payment_hash
+        raw = pconfig.get("payment_data_raw", {})
+        info_cfg = pconfig.get("payment_data_info", {})
+        accounts = pconfig.get("sepa_accounts", [])
+
+        if accounts and sepa_idx < len(accounts):
+            acct = accounts[sepa_idx]
+            iban = acct["iban"].replace(" ", "")
+            bic = acct.get("bic", "")
+            ben = acct.get("beneficiary", info_cfg.get("beneficiary", ""))
+            sepa_raw = iban
+            sepa_info = {"iban": iban, "beneficiary": ben, "bic": bic}
+        else:
+            sepa_raw = raw.get("sepa", "")
+            sepa_info = info_cfg.get("sepa", {})
+
+        # Build full payment_data for create_sell_offer
+        payment_data = {}
+        for method, val in raw.items():
+            if method in ("revolut", "wise"):
+                val = json.dumps({"userName": val, "reference": ""})
+            elif method in ("sepa", "instantSepa"):
+                val = sepa_raw
+            payment_data[method] = {"hashes": [make_payment_hash(val)]}
+
+        return payment_data, sepa_info
 
     @staticmethod
     def _filter_payment_methods(payment_methods, exclude_methods):
@@ -652,9 +696,12 @@ class TelegramBot:
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             auto_cfg = self.engine.config.get("auto_buy_escrow", {})
             premium = auto_cfg.get("premium", 5.5)
+            sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
+            payment_data, _ = self._get_sepa_payment_data(pconfig, sepa_idx)
 
             offer = peach.create_sell_offer(min_sats=min_sats, max_sats=max_sats,
-                                            premium_pct=premium, payment_methods=payment_methods)
+                                            premium_pct=premium, payment_methods=payment_methods,
+                                            payment_data=payment_data)
             escrow_addr = offer.escrow_address
             if not escrow_addr:
                 try:
@@ -662,8 +709,8 @@ class TelegramBot:
                     escrow_addr = info.get("address", "")
                 except Exception as e:
                     log.warning(f"auto_fund_wallet create_escrow: {e}")
-            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
-            log.info(f"auto_fund_wallet: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            log.info(f"auto_fund_wallet: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             self.notifier._send(
                 f"<b>🏦 Auto Fund from Wallet{label}</b>\n"
@@ -717,9 +764,12 @@ class TelegramBot:
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             auto_cfg = self.engine.config.get("auto_buy_escrow", {})
             premium = auto_cfg.get("premium", 5.5)
+            sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
+            payment_data, _ = self._get_sepa_payment_data(pconfig, sepa_idx)
 
             offer = peach.create_sell_offer(min_sats=min_sats, max_sats=max_sats,
-                                            premium_pct=premium, payment_methods=payment_methods)
+                                            premium_pct=premium, payment_methods=payment_methods,
+                                            payment_data=payment_data)
             escrow_addr = offer.escrow_address
             if not escrow_addr:
                 try:
@@ -727,8 +777,8 @@ class TelegramBot:
                     escrow_addr = info.get("address", "")
                 except Exception as e:
                     log.warning(f"auto_buy_escrow create_escrow: {e}")
-            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
-            log.info(f"auto_buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            log.info(f"auto_buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             # Check hot wallet — skip Kraken buy if already sufficient
             hot_wallet_sufficient = False
@@ -852,10 +902,13 @@ class TelegramBot:
 
             payment_methods = self._filter_payment_methods(
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
+            sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
+            payment_data, _ = self._get_sepa_payment_data(pconfig, sepa_idx)
 
             offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
                 min_sats=min_sats, max_sats=max_sats,
-                premium_pct=premium, payment_methods=payment_methods))
+                premium_pct=premium, payment_methods=payment_methods,
+                payment_data=payment_data))
             escrow_addr = offer.escrow_address
             if not escrow_addr:
                 try:
@@ -864,8 +917,8 @@ class TelegramBot:
                 except Exception as e:
                     log.warning(f"create_escrow: {e}")
 
-            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
-            log.info(f"fund: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            log.info(f"fund: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             await _tg(
                 f"✅ Offer: <code>{offer.id[:16]}</code> @ {premium}%\n"
@@ -988,10 +1041,13 @@ class TelegramBot:
 
             payment_methods = self._filter_payment_methods(
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
+            sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
+            payment_data, _ = self._get_sepa_payment_data(pconfig, sepa_idx)
 
             offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
                 min_sats=min_sats, max_sats=max_sats,
-                premium_pct=premium, payment_methods=payment_methods))
+                premium_pct=premium, payment_methods=payment_methods,
+                payment_data=payment_data))
             escrow_addr = offer.escrow_address
             if not escrow_addr:
                 try:
@@ -1000,8 +1056,8 @@ class TelegramBot:
                 except Exception as e:
                     log.warning(f"create_escrow: {e}")
 
-            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
-            log.info(f"escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            log.info(f"escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             await _tg(
                 f"✅ Offer: <code>{offer.id[:16]}</code> @ {premium}%\n"
@@ -1073,10 +1129,13 @@ class TelegramBot:
             payment_methods = self._filter_payment_methods(
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             premium = manual_premium if manual_premium is not None else self.engine.pricer.get_premium("peach", peach)
+            sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
+            payment_data, _ = self._get_sepa_payment_data(pconfig, sepa_idx)
 
             offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
                 min_sats=min_sats, max_sats=max_sats,
-                premium_pct=premium, payment_methods=payment_methods))
+                premium_pct=premium, payment_methods=payment_methods,
+                payment_data=payment_data))
             escrow_addr = offer.escrow_address
             if not escrow_addr:
                 try:
@@ -1084,8 +1143,8 @@ class TelegramBot:
                     escrow_addr = info.get("address", "")
                 except Exception as e:
                     log.warning(f"create_escrow: {e}")
-            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium)
-            log.info(f"buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats}")
+            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            log.info(f"buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             # Check if hot wallet already has enough confirmed UTXOs — skip Kraken buy if so
             hot_wallet_sufficient = False
