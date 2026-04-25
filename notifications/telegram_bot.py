@@ -133,9 +133,6 @@ class TelegramBot:
             "<b>Kaufen + Offer + Escrow (Fiat)</b>\n"
             "/buy_escrow &lt;chf&gt; [premium%]\n"
             "/buy_escrow_norev &lt;chf&gt; [premium%]\n\n"
-            "<b>Offer + Kraken-BTC withdrawen</b>\n"
-            "/escrow &lt;sats&gt; &lt;premium%&gt;\n"
-            "/escrow_norev &lt;sats&gt; &lt;premium%&gt;\n\n"
             "<b>Offer + Hot Wallet funden</b>\n"
             "/fund &lt;sats&gt; &lt;premium%&gt;\n"
             "/fund_norev &lt;sats&gt; &lt;premium%&gt;\n\n"
@@ -481,8 +478,6 @@ class TelegramBot:
             await self.cmd_market(update, ctx)
         elif q.data.startswith("buyescrow_"):
             await self._handle_currency_callback(q, "buy_escrow")
-        elif q.data.startswith("escrow_") and q.data[7:] in ("chf", "eur", "usd"):
-            await self._handle_currency_callback(q, "escrow")
         elif q.data.startswith("sell_") and q.data[5:] in ("chf", "eur", "usd"):
             await self._handle_currency_callback(q, "sell")
         elif q.data.startswith("buy_") and q.data[4:] in ("chf", "eur", "usd"):
@@ -943,154 +938,6 @@ class TelegramBot:
         """Kaufe auf Kraken → Hot Wallet → erstelle Peach-Offer → finanziere Escrow automatisch"""
         await self._buy_escrow_with_methods(update, ctx)
 
-    async def cmd_escrow(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Peach-Offer erstellen + vorhandenes BTC von Kraken withdrawen. Kein Neukauf."""
-        if not self._auth(update) or not self.engine: return
-        await self._escrow_with_methods(update, ctx)
-
-    async def cmd_escrow_norev(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Wie /escrow, aber ohne Revolut als Zahlungsmethode"""
-        await self._escrow_with_methods(update, ctx, exclude_methods=["revolut"])
-
-    async def _escrow_with_methods(self, update, ctx, exclude_methods=None):
-        if not self._auth(update) or not self.engine: return
-        args = ctx.args
-        if not args or len(args) < 2:
-            cmd = "/escrow" if not exclude_methods else "/escrow_norev"
-            await update.message.reply_text(
-                f"Verwendung: {cmd} &lt;sats&gt; &lt;premium%&gt;\n"
-                f"Beispiel: {cmd} 500000 5.5\n\n"
-                "Nutzt vorhandenes BTC auf Kraken (kein Neukauf).",
-                parse_mode="HTML"); return
-        try:
-            requested_sats = int(args[0])
-        except ValueError:
-            await update.message.reply_text("Ungültige Sats-Menge (z.B. 500000)."); return
-        if requested_sats < 10000:
-            await update.message.reply_text("Minimum 10'000 sats."); return
-        try:
-            premium = float(args[1])
-        except ValueError:
-            await update.message.reply_text("Ungültiges Premium (z.B. 5.5)."); return
-
-        # Check which exchanges have BTC
-        exchanges_with_btc = []
-        for ex in self.engine.exchanges.values():
-            try:
-                btc = ex.get_btc_balance()
-                if btc > 0.00001:
-                    exchanges_with_btc.append((ex, btc))
-            except Exception:
-                pass
-        if not exchanges_with_btc:
-            await update.message.reply_text("Kein BTC auf Kraken vorhanden."); return
-
-        # Check if enough BTC for requested sats
-        requested_btc = requested_sats / 1e8
-        exchanges_with_btc = [(ex, btc) for ex, btc in exchanges_with_btc if btc >= requested_btc * 0.99]
-        if not exchanges_with_btc:
-            await update.message.reply_text(f"Nicht genug BTC auf Kraken für {requested_sats:,} sats."); return
-
-        if len(exchanges_with_btc) > 1:
-            self._pending_buy_params[str(update.effective_chat.id)] = {
-                "command": "escrow", "premium": premium, "exclude_methods": exclude_methods,
-                "requested_sats": requested_sats
-            }
-            buttons = [[InlineKeyboardButton(
-                f"{ex.get_fiat_currency()} ({btc:.8f} BTC)",
-                callback_data=f"escrow_{ex.get_fiat_currency().lower()}"
-            ) for ex, btc in exchanges_with_btc]]
-            await update.message.reply_text(
-                "<b>Escrow — Exchange wählen:</b>",
-                parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
-            return
-
-        exchange, btc_balance = exchanges_with_btc[0]
-        await self._execute_escrow(exchange, requested_sats, premium, send_fn=update.message.reply_text, exclude_methods=exclude_methods)
-
-    async def _execute_escrow(self, exchange, requested_sats, premium, send_fn, exclude_methods=None):
-        """Create Peach offer and withdraw existing BTC from Kraken to fund it."""
-        currency = exchange.get_fiat_currency()
-        peach = self.engine.platforms.get("peach")
-        if not peach:
-            await send_fn("Peach nicht verfügbar."); return
-        pconfig = self.engine.config.get("platforms", {}).get("peach", {})
-        hot_wallet_addr = pconfig.get("refund_address", "")
-        if not hot_wallet_addr:
-            await send_fn("Kein refund_address in config.json."); return
-
-        async def _tg(text, **kw):
-            try:
-                await send_fn(text, **kw)
-            except Exception as tg_err:
-                log.warning(f"TG send failed: {tg_err}")
-
-        label = ""
-        if exclude_methods:
-            label = f" (ohne {', '.join(exclude_methods)})"
-
-        loop = asyncio.get_event_loop()
-        try:
-            spot = await loop.run_in_executor(None, exchange.get_spot_price)
-            amount_fiat = (requested_sats / 1e8) * spot
-            min_sats = pconfig.get("min_amount_sats", 10000)
-            max_sats = max(min(requested_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
-
-            await _tg(
-                f"<b>Escrow-Flow{label}</b>\n"
-                f"{requested_sats:,} sats (~{amount_fiat:.0f} {currency})\n\n"
-                f"Schritt 1/2: Offer erstellen…",
-                parse_mode="HTML")
-
-            payment_methods = self._filter_payment_methods(
-                pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
-            sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
-            payment_data, _ = self._get_sepa_payment_data(pconfig, sepa_idx)
-
-            offer = await loop.run_in_executor(None, lambda: peach.create_sell_offer(
-                min_sats=min_sats, max_sats=max_sats,
-                premium_pct=premium, payment_methods=payment_methods,
-                payment_data=payment_data))
-            escrow_addr = offer.escrow_address
-            if not escrow_addr:
-                try:
-                    info = await loop.run_in_executor(None, lambda: peach.create_escrow(offer.id))
-                    escrow_addr = info.get("address", "")
-                except Exception as e:
-                    log.warning(f"create_escrow: {e}")
-
-            self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
-            log.info(f"escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
-
-            await _tg(
-                f"✅ Offer: <code>{offer.id[:16]}</code> @ {premium}%\n"
-                f"{min_sats:,}–{max_sats:,} sats\n\n"
-                f"Schritt 2/2: Kraken-Withdrawal…",
-                parse_mode="HTML")
-
-            actual_balance = await loop.run_in_executor(None, exchange.get_btc_balance)
-            withdrawal = await loop.run_in_executor(None, lambda: exchange.withdraw_btc("", actual_balance))
-            log.info(f"escrow: withdrawal {withdrawal.withdrawal_id} ({actual_balance:.8f} BTC)")
-
-            await _tg(
-                f"✅ {actual_balance:.8f} BTC von {exchange.name} withdrawn\n"
-                f"Withdrawal-ID: <code>{withdrawal.withdrawal_id}</code>\n\n"
-                f"Warte auf On-Chain-Bestätigung…\n"
-                f"(Automatische Escrow-Finanzierung sobald Hot Wallet UTXO verfügbar)",
-                parse_mode="HTML")
-
-            if not escrow_addr:
-                await _tg(f"⚠️ Keine Escrow-Adresse für Offer <code>{offer.id}</code>", parse_mode="HTML"); return
-
-            self._save_pending_funding(offer.id, escrow_addr, max_sats, hot_wallet_addr)
-            threading.Thread(
-                target=self._poll_and_fund_escrow,
-                args=(offer.id, escrow_addr, max_sats, hot_wallet_addr),
-                daemon=True, name=f"fund-{offer.id[:8]}").start()
-
-        except Exception as e:
-            await _tg(f"❌ Fehler: {str(e)[:400]}")
-            log.exception(f"escrow: {e}")
 
     async def cmd_buy_escrow_norev(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Wie /buy_escrow, aber ohne Revolut als Zahlungsmethode"""
@@ -1592,8 +1439,12 @@ class TelegramBot:
     async def cmd_auto(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Zeigt und steuert den Auto Buy-Escrow Modus"""
         if not self._auth(update) or not self.engine: return
-        text, markup = self._auto_status_text_and_markup()
-        await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+        try:
+            text, markup = self._auto_status_text_and_markup()
+            await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception as e:
+            log.exception(f"cmd_auto: {e}")
+            await update.message.reply_text(f"Fehler: {e}")
 
     async def _handle_auto_callback(self, q):
         if not self.engine: return
@@ -1648,7 +1499,7 @@ class TelegramBot:
 
     def build_app(self):
         app = Application.builder().token(self.token).build()
-        for cmd, fn in [("start",self.cmd_start),("status",self.cmd_status),("balance",self.cmd_balance),("offers",self.cmd_offers),("pause",self.cmd_pause),("resume",self.cmd_resume),("profit",self.cmd_profit),("market",self.cmd_market),("buy",self.cmd_buy),("escrow",self.cmd_escrow),("escrow_norev",self.cmd_escrow_norev),("fund",self.cmd_fund),("fund_norev",self.cmd_fund_norev),("buy_escrow",self.cmd_buy_escrow),("buy_escrow_norev",self.cmd_buy_escrow_norev),("wallet",self.cmd_wallet),("contracts",self.cmd_contracts),("sell",self.cmd_sell),("cancel",self.cmd_cancel),("refunds",self.cmd_refunds),("reload",self.cmd_reload),("auto",self.cmd_auto)]:
+        for cmd, fn in [("start",self.cmd_start),("status",self.cmd_status),("balance",self.cmd_balance),("offers",self.cmd_offers),("pause",self.cmd_pause),("resume",self.cmd_resume),("profit",self.cmd_profit),("market",self.cmd_market),("buy",self.cmd_buy),("fund",self.cmd_fund),("fund_norev",self.cmd_fund_norev),("buy_escrow",self.cmd_buy_escrow),("buy_escrow_norev",self.cmd_buy_escrow_norev),("wallet",self.cmd_wallet),("contracts",self.cmd_contracts),("sell",self.cmd_sell),("cancel",self.cmd_cancel),("refunds",self.cmd_refunds),("reload",self.cmd_reload),("auto",self.cmd_auto)]:
             app.add_handler(CommandHandler(cmd, fn))
         app.add_handler(CallbackQueryHandler(self.handle_callback))
         return app
@@ -1662,6 +1513,26 @@ class TelegramBot:
             loop.run_until_complete(app.initialize())
             loop.run_until_complete(app.start())
             loop.run_until_complete(app.updater.start_polling(drop_pending_updates=True))
+            loop.run_until_complete(app.bot.set_my_commands([
+                ("status",        "Bot-Status & aktive Offers"),
+                ("balance",       "Kraken-Kontostände + BTC"),
+                ("wallet",        "Hot Wallet Balance & UTXOs"),
+                ("offers",        "Aktive Peach-Angebote"),
+                ("contracts",     "Aktive Contracts"),
+                ("profit",        "Gewinn-Übersicht"),
+                ("market",        "Marktanalyse & Premium"),
+                ("auto",          "Auto Buy-Escrow Modus wechseln"),
+                ("buy_escrow",    "Kaufen + Offer + Escrow (Fiat/BTC)"),
+                ("buy_escrow_norev", "Buy-Escrow ohne Revolut"),
+                ("fund",          "Offer + Hot Wallet funden"),
+                ("buy",           "BTC auf Kraken kaufen"),
+                ("sell",          "BTC auf Kraken verkaufen"),
+                ("cancel",        "Offer abbrechen"),
+                ("refunds",       "Offene Refunds"),
+                ("reload",        "Config neu laden"),
+                ("pause",         "Bot pausieren"),
+                ("resume",        "Bot fortsetzen"),
+            ]))
             log.info("Telegram running.")
             loop.run_forever()
         t = threading.Thread(target=_run, daemon=True, name="telegram")
