@@ -774,6 +774,7 @@ class TradingEngine:
             "sepa": sepa_iban,
             "instantSepa": n26_iban,
             "wise": json.dumps({"userName": wise_user, "reference": ""}),
+            "solanausdt": raw.get("solanausdt", ""),
         }
         # Structured payment info for encryption (what the buyer sees)
         beneficiary = info.get("beneficiary", "")
@@ -783,6 +784,7 @@ class TradingEngine:
             "sepa": info.get("sepa", {"iban": sepa_iban, "beneficiary": beneficiary}),
             "instantSepa": info.get("instantSepa", {"iban": n26_iban, "beneficiary": beneficiary}),
             "wise": info.get("wise", {"userName": wise_user, "reference": ""}),
+            "solanausdt": info.get("solanausdt", {"address": raw.get("solanausdt", "")}),
         }
 
         sepa_accounts = pconfig.get("sepa_accounts", [])
