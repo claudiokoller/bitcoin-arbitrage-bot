@@ -33,6 +33,26 @@ class TelegramNotifier:
     def notify_daily_summary(self, s):
         self._send(f"<b>Heute:</b> {s['count']} Trades | {s['total_profit']:.2f} CHF")
 
+    def notify_weekly_summary(self, w, breakdown):
+        profit = w.get('total_profit', 0)
+        count = w.get('count', 0)
+        sats = w.get('total_sats', 0)
+        avg_prem = w.get('avg_premium', 0)
+        sign = "+" if profit >= 0 else ""
+        lines = [
+            f"<b>📊 Wochenrückblick</b>",
+            f"Trades: {count} | Volumen: {sats:,} sats",
+            f"Profit: <b>{sign}{profit:.2f} CHF</b>",
+            f"Ø Premium: {avg_prem:.1f}%",
+        ]
+        if breakdown:
+            lines.append("")
+            for b in breakdown:
+                bp = b.get('profit', 0)
+                bsign = "+" if bp >= 0 else ""
+                lines.append(f"  {b['platform']}: {b['count']} trades, {bsign}{bp:.2f} CHF")
+        self._send("\n".join(lines))
+
     def trigger_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
         bot = getattr(self, 'bot', None)
         if bot:

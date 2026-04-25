@@ -174,6 +174,7 @@ class TradingEngine:
         self._buy_data_cache = {}  # preserved buy data after offer removed from pending_escrows
         self._start_time = datetime.now()
         self._last_daily_summary = None
+        self._last_weekly_summary = None
         self._pending_refunds = {}  # {offer_id: {escrow_addr, amount_sats, created}}
         self._last_refund_check = None
         self._premium_reductions = {}  # {offer_id: original_premium} for tracking reductions
@@ -322,6 +323,7 @@ class TradingEngine:
             try: self._process_platform(name, platform)
             except Exception as e: log.error(f"{name}: {e}")
         self._check_daily_summary()
+        self._check_weekly_summary()
         self._check_low_balance()
         self._check_pending_refunds()
         self._auto_consolidate_utxos()
@@ -341,6 +343,21 @@ class TradingEngine:
                     self.notifier.notify_daily_summary(s)
                 except Exception as e:
                     log.debug(f"Daily summary: {e}")
+
+    def _check_weekly_summary(self):
+        now = datetime.now()
+        if now.weekday() != 6 or now.hour != 22: return  # Sonntag 22:00
+        week = now.isocalendar()[1]
+        if self._last_weekly_summary and self._last_weekly_summary.isocalendar()[1] == week:
+            return
+        self._last_weekly_summary = now
+        if self.notifier:
+            try:
+                w = self.trade_logger.get_period_summary(days=7)
+                b = self.trade_logger.get_platform_breakdown(days=7)
+                self.notifier.notify_weekly_summary(w, b)
+            except Exception as e:
+                log.debug(f"Weekly summary: {e}")
     def _check_low_balance(self):
         now = datetime.now()
         if now.minute not in (0, 1): return  # check at top of hour (tolerant of 30s tick)
