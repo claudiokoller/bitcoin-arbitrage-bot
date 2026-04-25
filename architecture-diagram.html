@@ -260,7 +260,7 @@
         <li><span class="dot"></span>Contract monitoring with PSBT signing</li>
         <li><span class="dot"></span>Auto premium reduction via live PATCH (no cancel/refund)</li>
         <li><span class="dot"></span>Auto-refund: sign &amp; broadcast cancelled escrow PSBTs every 10min</li>
-        <li><span class="dot"></span><b>Auto buy-escrow</b>: every 10min, CHF/EUR/USD, 5.5% fixed premium, no Revolut</li>
+        <li><span class="dot"></span><b>Auto buy-escrow</b>: every 10min, CHF/EUR/USD/USDT, 5.5% fixed premium, switchable mode via /auto</li>
         <li><span class="dot"></span>Daily summary, low balance alerts, profit tracking</li>
         <li><span class="dot"></span>Multi-source spot price with fallback</li>
         <li><span class="dot"></span>Thread-safe concurrent access (engine + Telegram threads)</li>
@@ -279,7 +279,7 @@
         <div class="card-icon">🏦</div>
         <div>
           <div class="card-title">Exchange Connector</div>
-          <div class="card-subtitle">CHF/EUR/USD spot market buy + withdrawal</div>
+          <div class="card-subtitle">CHF/EUR/USD/USDT spot market buy + withdrawal</div>
         </div>
       </div>
       <ul class="feature-list">
@@ -425,7 +425,8 @@
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Full cycle: CHF/EUR/USD buy or BTC withdraw → Offer → Escrow</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Full cycle: CHF/EUR/USD/USDT buy or BTC withdraw → Offer → Escrow</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/auto</code> — Switch auto buy-escrow mode (with/without Revolut) + enable/disable</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/market</code> — Competitive analysis + premium recommendation</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/status /balance /offers /contracts</code> — Monitoring</li>
         <li><span class="dot"></span><code style="color:#60a5fa">/cancel /pause /resume</code> — Control with inline keyboards</li>
@@ -481,6 +482,21 @@
         <div class="p-name">Wise</div>
         <div class="p-currencies">CHF · EUR · USD</div>
         <div class="p-hash">sha256(JSON)</div>
+      </div>
+      <div class="payment-item">
+        <div class="p-name">USDT (Solana)</div>
+        <div class="p-currencies">USDT</div>
+        <div class="p-hash">sha256(address)</div>
+      </div>
+      <div class="payment-item">
+        <div class="p-name">USDT (Arbitrum)</div>
+        <div class="p-currencies">USDT</div>
+        <div class="p-hash">sha256(address)</div>
+      </div>
+      <div class="payment-item">
+        <div class="p-name">USDT (Ethereum)</div>
+        <div class="p-currencies">USDT</div>
+        <div class="p-hash">sha256(address)</div>
       </div>
     </div>
   </div>
