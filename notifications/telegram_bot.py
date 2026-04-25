@@ -393,7 +393,9 @@ class TelegramBot:
                             "sepa": "SEPA", "instantSepa": "Instant SEPA",
                             "solanausdt": "USDT (Solana)",
                             "arbitrumusdt": "USDT (Arbitrum)",
-                            "ethereumusdt": "USDT (Ethereum)"}
+                            "ethereumusdt": "USDT (Ethereum)",
+                            "baseusdt": "USDT (Base)",
+                            "bnbusdt": "USDT (BNB)"}
             mlines = []
             all_methods = sorted(my_method_set,
                                 key=lambda m: method_counts_buy.get(m, 0), reverse=True)
