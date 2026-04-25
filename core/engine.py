@@ -731,7 +731,7 @@ class TradingEngine:
                             self._contracted_offers.discard(offer.id)
                             self._save_contracted_offers()
                             log.info(f"{name}: re-activated contracted offer {offer.id} (still FUNDED)")
-                        self.pending_escrows[offer.id] = {"platform": name, "escrow_address": escrow_addr, "amount_sats": amount, "funded": True, "funded_at": funded_at, "premium": saved.get("premium", offer.premium_pct)}
+                        self.pending_escrows[offer.id] = {"platform": name, "escrow_address": escrow_addr, "amount_sats": amount, "funded": True, "funded_at": funded_at, "premium": saved.get("premium", offer.premium_pct), "sepa_account_index": saved.get("sepa_account_index", 0)}
                         log.info(f"{name}: synced funded offer {offer.id} into pending_escrows")
                     except Exception as e:
                         log.debug(f"{name}: escrow status {offer.id[:12]}: {e}")
@@ -1059,7 +1059,7 @@ class TradingEngine:
                     info["premium"] = new_premium
                     info["funded_at"] = now.isoformat()  # reset timer for next reduction
                     # Persist so timer survives restarts
-                    self._escrow_state[str(oid)] = {"funded_at": now.isoformat(), "premium": new_premium}
+                    self._escrow_state[str(oid)] = {"funded_at": now.isoformat(), "premium": new_premium, "sepa_account_index": info.get("sepa_account_index", 0)}
                     self._save_escrow_state()
                     if self.notifier:
                         self.notifier._send(
