@@ -27,6 +27,14 @@ class TradeLogger:
                     conn.execute(f"ALTER TABLE trades ADD COLUMN {col} REAL DEFAULT {default}")
                 except Exception:
                     pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE trades ADD COLUMN buy_currency TEXT DEFAULT 'CHF'")
+            except Exception:
+                pass
+            try:
+                conn.execute("ALTER TABLE trades ADD COLUMN sell_price_chf REAL DEFAULT 0")
+            except Exception:
+                pass
             conn.execute("""CREATE TABLE IF NOT EXISTS events (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL,
                 platform TEXT, event_type TEXT NOT NULL, data TEXT)""")
@@ -59,8 +67,8 @@ class TradeLogger:
             conn.execute("""INSERT INTO trades (timestamp,platform,exchange,contract_id,
                 amount_sats,buy_price,sell_price,currency,premium_pct,exchange_fee,
                 platform_fee,network_fee,net_profit,payment_method,status,
-                withdrawal_fee,funding_fee,spot_at_buy,spot_at_sell)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                withdrawal_fee,funding_fee,spot_at_buy,spot_at_sell,buy_currency,sell_price_chf)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                 kw.get("timestamp", datetime.now().isoformat()),
                 kw.get("platform",""), kw.get("exchange",""), kw.get("contract_id",""),
                 kw.get("amount_sats",0), kw.get("buy_price",0), kw.get("sell_price",0),
@@ -68,7 +76,8 @@ class TradeLogger:
                 kw.get("platform_fee",0), kw.get("network_fee",0), kw.get("net_profit",0),
                 kw.get("payment_method",""), kw.get("status","completed"),
                 kw.get("withdrawal_fee",0), kw.get("funding_fee",0),
-                kw.get("spot_at_buy",0), kw.get("spot_at_sell",0)))
+                kw.get("spot_at_buy",0), kw.get("spot_at_sell",0),
+                kw.get("buy_currency","CHF"), kw.get("sell_price_chf",0)))
             conn.commit()
     def log_event(self, platform, event_type, data=""):
         with self._db_lock, sqlite3.connect(self.db_path) as conn:
