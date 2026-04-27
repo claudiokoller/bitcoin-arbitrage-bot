@@ -2,27 +2,28 @@
 
 Semi-automated Bitcoin arbitrage between centralized exchanges and P2P platforms.
 
-Buy BTC at spot price on an exchange, sell at a premium on a P2P marketplace. Offer creation and premium setting are done manually — trade matching, payment handling, and escrow release are automated.
+Buy BTC at spot price on an exchange, sell at a 3–6% premium on a P2P marketplace. Offer creation and premium setting are done manually — trade matching, payment handling, and escrow release are automated.
 
 **[Architecture Diagram](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
 
 ## Trade Cycle
 
 1. **Create sell offer** on P2P platform with manual premium (e.g. +6%)
-2. **Buy BTC** on exchange at spot price
+2. **Buy BTC** on exchange at spot price (CHF/EUR/USD/USDT)
 3. **Fund escrow** — withdraw to hot wallet, then on-chain TX to escrow address
 4. **Match** — auto-accept trade requests with encrypted payment data (PGP)
-5. **Payment** — buyer pays via Twint/SEPA/Revolut/Wise
+5. **Payment** — buyer pays via Twint/SEPA/Revolut/Wise/USDT
 6. **Release** — sign PSBT to release escrow after payment confirmation
 7. **Auto-reduce premium** — PATCH live offers if no match after 24h
 
 ## Features
 
-- **Multi-currency**: CHF, EUR, USD support
-- **Multi-payment**: Twint, SEPA, SEPA Instant, Revolut, Wise
+- **Multi-currency**: CHF, EUR, USD, USDT support
+- **Multi-payment**: Twint, SEPA, SEPA Instant, Revolut, Wise, USDT (Solana/Arbitrum/Ethereum)
 - **HD escrow keys**: BIP32 derivation per offer (`m/84'/0'/0'/{offerId}'`)
 - **PGP encryption**: Symmetric key exchange for payment data
 - **Auto premium reduction**: Live PATCH on stale offers (no cancel/refund cycle)
+- **Auto buy-escrow**: Every 10 min, buys BTC and creates a funded offer automatically (`/auto`)
 - **Dual fill detection**: Order polling + balance change fallback
 - **Profit tracking**: Full fee breakdown (exchange, withdrawal, funding, platform)
 - **Telegram bot**: Complete remote control with inline keyboards
@@ -66,7 +67,8 @@ See `config.example.json` for all options. Key settings:
 - **Exchange**: API key/secret, trading pair, withdrawal key
 - **P2P Platform**: Private key (secp256k1), mnemonic (BIP39), PGP keypair
 - **Payment methods**: Per-currency payment method configuration
-- **Premium**: Base premium, floor, auto-reduction interval
+- **Premium**: Base premium (typically 3–6%), floor, auto-reduction interval
+- **Auto buy-escrow**: Interval, amounts, fixed premium, excluded payment methods
 - **Telegram**: Bot token + chat ID for notifications
 
 ## Key Design Decisions
