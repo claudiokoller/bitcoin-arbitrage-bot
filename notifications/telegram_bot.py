@@ -109,18 +109,30 @@ class TelegramBot:
             ben = acct.get("beneficiary", info_cfg.get("beneficiary", ""))
             sepa_raw = iban
             sepa_info = {"iban": iban, "beneficiary": ben, "bic": bic}
+            # If this account doesn't support SEPA Instant, fall back to named or first instant account
+            if not acct.get("instant", True):
+                fallback_name = acct.get("instant_fallback")
+                instant_acct = next((a for a in accounts if fallback_name and a.get("name") == fallback_name), None) \
+                            or next((a for a in accounts if a.get("instant", True)), acct)
+                instant_raw = instant_acct["iban"].replace(" ", "")
+            else:
+                instant_raw = iban
         else:
             sepa_raw = raw.get("sepa", "")
+            instant_raw = sepa_raw
             sepa_info = info_cfg.get("sepa", {})
 
         # Build full payment_data for create_sell_offer
         payment_data = {}
         for method, val in raw.items():
+            if method in ("sepa", "instantSepa"):
+                continue  # handled explicitly below from sepa_accounts
             if method in ("revolut", "wise"):
                 val = json.dumps({"userName": val, "reference": ""})
-            elif method in ("sepa", "instantSepa"):
-                val = sepa_raw
             payment_data[method] = {"hashes": [make_payment_hash(val)]}
+        # sepa/instantSepa always from rotation, not from payment_data_raw
+        payment_data["sepa"] = {"hashes": [make_payment_hash(sepa_raw)]}
+        payment_data["instantSepa"] = {"hashes": [make_payment_hash(instant_raw)]}
 
         return payment_data, sepa_info
 
@@ -161,7 +173,7 @@ class TelegramBot:
             "<b>Sonstiges</b>\n"
             "/cancel &lt;offer_id&gt; – Offer abbrechen\n"
             "/refunds – Offene Refunds\n"
-            "/auto – Auto Buy-Escrow Modus wechseln\n"
+            "/auto [premium%] – Auto Buy-Escrow Modus / Premium setzen\n"
             "/reload – Config neu laden (kein Restart)\n"
             "/pause /resume – Bot steuern",
             parse_mode="HTML")
@@ -413,6 +425,9 @@ class TelegramBot:
             # Payment method breakdown (only methods I offer)
             method_labels = {"twint": "Twint", "revolut": "Revolut", "wise": "Wise",
                             "sepa": "SEPA", "instantSepa": "Instant SEPA",
+                            "skrill": "Skrill",
+                            "n26": "N26",
+                            "paysera": "Paysera",
                             "solanausdt": "USDT (Solana)",
                             "arbitrumusdt": "USDT (Arbitrum)",
                             "ethereumusdt": "USDT (Ethereum)"}
@@ -765,6 +780,7 @@ class TelegramBot:
 
         label = f" (ohne {', '.join(exclude_methods)})" if exclude_methods else ""
         log.info(f"auto_buy_escrow: {amount_fiat:.0f} {currency}{label}")
+        _registered_offer_id = None  # track whether add_pending_escrow was called
         try:
             spot = exchange.get_spot_price()
             # Deduct Kraken withdrawal fee so the arriving UTXO covers the escrow amount
@@ -797,6 +813,7 @@ class TelegramBot:
                 except Exception as e:
                     log.warning(f"auto_buy_escrow create_escrow: {e}")
             self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            _registered_offer_id = offer.id
             log.info(f"auto_buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             # Check hot wallet — skip Kraken buy if already sufficient
@@ -849,6 +866,13 @@ class TelegramBot:
         except Exception as e:
             log.exception(f"auto_buy_escrow: {e}")
             self.notifier._send(f"❌ <b>Auto Buy-Escrow Fehler</b> ({currency})\n{str(e)[:300]}")
+            # If offer was added to pending_escrows before the exception (e.g. Kraken buy failed),
+            # remove it — no poll thread was started, so it would be stuck forever otherwise.
+            if _registered_offer_id:
+                with self.engine._escrow_lock:
+                    removed = self.engine.pending_escrows.pop(_registered_offer_id, None)
+                if removed:
+                    log.warning(f"auto_buy_escrow: removed dangling pending_escrow for {_registered_offer_id} after error")
 
     async def cmd_fund(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Peach-Offer erstellen + direkt von Hot Wallet funden (alle Methoden)"""
@@ -1042,6 +1066,7 @@ class TelegramBot:
         label = " (ohne Revolut)" if exclude_methods and "revolut" in exclude_methods else ""
         await _tg(f"<b>Buy-Escrow-Flow{label}</b>\n{amount_fiat:.2f} {currency}\n\nSchritt 1/3: Spot-Preis…", parse_mode="HTML")
         loop = asyncio.get_event_loop()
+        _registered_offer_id = None
         try:
             spot = await loop.run_in_executor(None, exchange.get_spot_price)
             withdraw_fee_sats = 0
@@ -1072,6 +1097,7 @@ class TelegramBot:
                 except Exception as e:
                     log.warning(f"create_escrow: {e}")
             self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            _registered_offer_id = offer.id
             log.info(f"buy_escrow: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             # Check if hot wallet already has enough confirmed UTXOs — skip Kraken buy if so
@@ -1134,6 +1160,11 @@ class TelegramBot:
         except Exception as e:
             await _tg(f"❌ Fehler: {str(e)[:400]}")
             log.exception(f"buy_escrow: {e}")
+            if _registered_offer_id:
+                with self.engine._escrow_lock:
+                    removed = self.engine.pending_escrows.pop(_registered_offer_id, None)
+                if removed:
+                    log.warning(f"buy_escrow: removed dangling pending_escrow for {_registered_offer_id} after error")
 
     def _save_pending_funding(self, offer_id, escrow_addr, amount_sats, hot_wallet_addr):
         with self._funding_lock:
@@ -1215,6 +1246,14 @@ class TelegramBot:
                             self._remove_pending_funding(offer_id)
                             if self.notifier:
                                 self.notifier._send(f"🚨 <b>WRONG_FUNDING_AMOUNT</b>\nOffer: <code>{offer_id}</code>\nManuelle Prüfung nötig!")
+                            return
+                        if funding_status == 'CANCELED':
+                            log.warning(f"Poll fund {offer_id[:12]}: escrow CANCELED by Peach — removing from tracking")
+                            with self.engine._escrow_lock:
+                                self.engine.pending_escrows.pop(offer_id, None)
+                            self._remove_pending_funding(offer_id)
+                            if self.notifier:
+                                self.notifier._send(f"⚠️ <b>Escrow CANCELED</b>\nOffer: <code>{offer_id}</code>\nPeach hat das Angebot storniert.")
                             return
                     except Exception as e:
                         log.debug(f"Poll fund {offer_id[:12]}: escrow status check failed: {e}, proceeding to UTXO check")
@@ -1495,12 +1534,13 @@ class TelegramBot:
         mode = cfg.get("mode", "norev")
         status = "✅ Aktiv" if enabled else "⏸ Inaktiv"
         mode_label = "Ohne Revolut" if mode == "norev" else "Mit Revolut"
-        interval = cfg.get("check_interval_sec", 600) // 60
+        check_interval = cfg.get("check_interval_sec", 600)
+        effective_interval = max(check_interval, 1800) // 60
         premium = cfg.get("premium", 5.5)
         text = (f"<b>Auto Buy-Escrow</b>\n"
                 f"Status: {status}\n"
                 f"Modus: {mode_label}\n"
-                f"Premium: {premium}% | Interval: {interval}min")
+                f"Premium: {premium}% | Interval: {effective_interval}min")
         norev_mark = " ✓" if mode == "norev" else ""
         withrev_mark = " ✓" if mode == "withrev" else ""
         toggle_label = "⏸ Deaktivieren" if enabled else "▶️ Aktivieren"
@@ -1512,9 +1552,29 @@ class TelegramBot:
         return text, markup
 
     async def cmd_auto(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        """Zeigt und steuert den Auto Buy-Escrow Modus"""
+        """Zeigt und steuert den Auto Buy-Escrow Modus. /auto [premium%] setzt das Standard-Premium."""
         if not self._auth(update) or not self.engine: return
         try:
+            args = (ctx.args or [])
+            if args:
+                try:
+                    new_premium = float(args[0].replace(",", ".").rstrip("%"))
+                    if not (0 < new_premium < 100):
+                        raise ValueError
+                except ValueError:
+                    await update.message.reply_text("Ungültig. Beispiel: /auto 6.0")
+                    return
+                cfg = self.engine.config.setdefault("auto_buy_escrow", {})
+                cfg["premium"] = new_premium
+                self.engine.config["auto_buy_escrow"] = cfg
+                import os as _os
+                config_path = _os.path.join(_os.path.dirname(__file__), "..", "config.json")
+                with open(config_path) as f:
+                    disk_cfg = json.load(f)
+                disk_cfg["auto_buy_escrow"] = cfg
+                with open(config_path, "w") as f:
+                    json.dump(disk_cfg, f, indent=4)
+                log.info(f"auto_buy_escrow premium set to {new_premium}%")
             text, markup = self._auto_status_text_and_markup()
             await update.message.reply_text(text, parse_mode="HTML", reply_markup=markup)
         except Exception as e:
@@ -1596,7 +1656,7 @@ class TelegramBot:
                 ("contracts",     "Aktive Contracts"),
                 ("profit",        "Gewinn-Übersicht"),
                 ("market",        "Marktanalyse & Premium"),
-                ("auto",          "Auto Buy-Escrow Modus wechseln"),
+                ("auto",          "Auto Buy-Escrow Modus / Premium setzen"),
                 ("buy_escrow",    "Kaufen + Offer + Escrow (Fiat/BTC)"),
                 ("buy_escrow_norev", "Buy-Escrow ohne Revolut"),
                 ("fund",          "Offer + Hot Wallet funden"),

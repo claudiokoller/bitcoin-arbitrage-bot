@@ -230,7 +230,7 @@ def api_trades():
         )""")
     db.commit()
     rows = db.execute(
-        "SELECT * FROM trades ORDER BY timestamp DESC LIMIT 100").fetchall()
+        "SELECT * FROM trades ORDER BY timestamp DESC").fetchall()
     db.close()
     return jsonify([dict(r) for r in rows])
 
@@ -308,6 +308,24 @@ def api_profit():
         "today": dict(today),
         "week": dict(week)
     })
+
+@app.route("/api/profit/by-method")
+@requires_auth
+def api_profit_by_method():
+    db = get_db()
+    if not db: return jsonify([])
+    rows = db.execute("""
+        SELECT payment_method,
+               COUNT(*) as count,
+               COALESCE(SUM(net_profit),0) as profit,
+               COALESCE(SUM(sell_price_chf),0) as revenue,
+               COALESCE(SUM(amount_sats),0) as volume_sats
+        FROM trades
+        GROUP BY payment_method
+        ORDER BY count DESC
+    """).fetchall()
+    db.close()
+    return jsonify([dict(r) for r in rows])
 
 @app.route("/api/events")
 @requires_auth
@@ -469,7 +487,7 @@ def api_premium_history():
     rows = db.execute("""
         SELECT timestamp, currency, num_offers, lowest, median, avg, highest
         FROM premium_history
-        WHERE timestamp > datetime('now', '-7 days')
+        WHERE timestamp > datetime('now', '-30 days')
         ORDER BY timestamp
     """).fetchall()
     db.close()
@@ -956,7 +974,7 @@ th{text-align:left;font-size:.55rem;color:var(--t3);text-transform:uppercase;let
 td{padding:5px 6px;font-size:.65rem;font-family:var(--mono);border-bottom:1px solid rgba(42,53,80,.4);color:var(--t2)}
 tr:hover td{background:rgba(255,255,255,.02)}
 .badge{display:inline-block;padding:1px 5px;border-radius:3px;font-size:.55rem;font-weight:600}
-.badge-grn{background:rgba(16,185,129,.15);color:var(--grn)}.badge-blu{background:rgba(59,130,246,.15);color:var(--blu)}
+.badge-grn{background:rgba(16,185,129,.15);color:var(--grn)}.badge-blu{background:rgba(59,130,246,.15);color:var(--blu)}.badge-cyn{background:rgba(6,182,212,.15);color:#06b6d4}.badge-pnk{background:rgba(236,72,153,.15);color:#ec4899}.badge-teal{background:rgba(20,184,166,.15);color:#14b8a6}
 .badge-org{background:rgba(245,158,11,.15);color:var(--org)}.badge-red{background:rgba(239,68,68,.15);color:var(--red)}
 .badge-pur{background:rgba(139,92,246,.15);color:var(--pur)}
 .t-scroll{min-height:600px;max-height:1200px;overflow-y:auto}
@@ -1092,6 +1110,10 @@ tr:hover td{background:rgba(255,255,255,.02)}
             <div class="sec"><div class="s-hd"><span>&#x1f4ca; T&auml;glicher Profit</span></div><div style="height:250px;position:relative"><canvas id="profitChart"></canvas></div></div>
             <div class="sec"><div class="s-hd"><span>&#x1f4b0; Kumulativer P/L</span></div><div style="height:250px;position:relative"><canvas id="cumulChart"></canvas></div></div>
         </div>
+        <div class="sec" style="margin-bottom:20px">
+            <div class="s-hd"><span>&#x1f4b3; Umsatz &amp; Gewinn nach Zahlungsmethode</span></div>
+            <div id="methodStats" style="overflow-x:auto"></div>
+        </div>
         <div class="cow-empty" id="cowEmpty" style="display:flex">
             <div class="cow-wrap" id="cowWrap" onclick="var w=this;w.classList.toggle('turbo')">
             <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg">
@@ -1152,7 +1174,7 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <!-- TAB: Market -->
     <div id="tab-market" class="tab-content">
         <div class="sec">
-            <div class="s-hd"><span>&#x1f4c8; Premium Verlauf (7d)</span><span class="s-badge" id="premHistCount">--</span></div>
+            <div class="s-hd"><span>&#x1f4c8; Premium Verlauf (30d)</span><span class="s-badge" id="premHistCount">--</span></div>
             <div style="height:200px"><canvas id="premiumChart" height="200"></canvas></div>
         </div>
         <div class="sec">
@@ -1271,7 +1293,7 @@ async function loadTrades(){
         const nc=net>=0?'color:#10b981':'color:#ef4444';
         const dt=(t.timestamp||'').substring(5,16).replace('T',' ');
         const pm=t.payment_method||'-';
-        const pmBadge=pm==='twint'?'badge-grn':pm==='revolut'?'badge-pur':'badge-blu';
+        const pmBadge=pm==='twint'?'badge-grn':pm==='revolut'?'badge-pur':pm==='wise'?'badge-cyn':(pm==='sepa'||pm==='instantSepa')?'badge-org':(pm==='skrill'||pm==='n26'||pm==='paysera')?'badge-pnk':(pm.includes('usdt'))?'badge-teal':'badge-blu';
         const bc=t.buy_currency||'CHF',sc=t.currency||'CHF';
         const spotChange=t.spot_at_buy&&t.spot_at_sell?((t.spot_at_sell/t.spot_at_buy-1)*100).toFixed(2):'--';
         const spotColor=spotChange!=='--'?(Number(spotChange)>=0?'#10b981':'#ef4444'):'#64748b';
@@ -1571,7 +1593,53 @@ async function loadKraken(){
     }catch(e){c.innerHTML='<div class="empty">Fehler: '+e.message+'</div>';}
 }
 
-function loadAll(){loadStatus();loadProfit();loadEvents();loadBotStatus();}
+async function loadMethodStats(){
+    try{const r=await fetch('/api/profit/by-method');const rows=await r.json();
+    const el=document.getElementById('methodStats');if(!rows.length){el.innerHTML='<div style="color:#64748b;font-size:.8rem;padding:8px">Keine Daten</div>';return;}
+    const pmLabel={'twint':'Twint','revolut':'Revolut','wise':'Wise','sepa':'SEPA','instantSepa':'SEPA Instant','skrill':'Skrill','n26':'N26','paysera':'Paysera','solanausdt':'USDT (Solana)','arbitrumusdt':'USDT (Arbitrum)','ethereumusdt':'USDT (Ethereum)'};
+    const pmColor={'twint':'#10b981','revolut':'#8b5cf6','wise':'#06b6d4','sepa':'#f59e0b','instantSepa':'#f97316','skrill':'#ec4899','n26':'#ec4899','paysera':'#ec4899','solanausdt':'#14b8a6','arbitrumusdt':'#14b8a6','ethereumusdt':'#14b8a6'};
+    const totalRev=rows.reduce((s,r)=>s+Number(r.revenue||0),0);
+    let h='<table style="width:100%;border-collapse:collapse;font-size:.78rem">'
+        +'<thead><tr style="color:#64748b;border-bottom:1px solid #1e293b">'
+        +'<th style="padding:7px 8px;text-align:left">Methode</th>'
+        +'<th style="padding:7px 8px;text-align:right">Trades</th>'
+        +'<th style="padding:7px 8px;text-align:right">Volumen (sats)</th>'
+        +'<th style="padding:7px 8px;text-align:right">Umsatz (CHF)</th>'
+        +'<th style="padding:7px 8px;text-align:right">Gewinn (CHF)</th>'
+        +'<th style="padding:7px 8px;text-align:right">Anteil</th>'
+        +'</tr></thead><tbody>';
+    const totCount=rows.reduce((s,r)=>s+Number(r.count||0),0);
+    const totVol=rows.reduce((s,r)=>s+Number(r.volume_sats||0),0);
+    const totProfit=rows.reduce((s,r)=>s+Number(r.profit||0),0);
+    rows.forEach(function(r){
+        const pm=r.payment_method||'-';
+        const col=pmColor[pm]||'#3b82f6';
+        const lbl=pmLabel[pm]||pm;
+        const profit=Number(r.profit||0);
+        const rev=Number(r.revenue||0);
+        const share=totalRev>0?(rev/totalRev*100).toFixed(1):'0.0';
+        const pc=profit>=0?'#10b981':'#ef4444';
+        h+='<tr style="border-bottom:1px solid #0f172a">'
+            +'<td style="padding:7px 8px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+col+';margin-right:6px"></span>'+lbl+'</td>'
+            +'<td style="padding:7px 8px;text-align:right;color:#94a3b8">'+r.count+'</td>'
+            +'<td style="padding:7px 8px;text-align:right;color:#94a3b8">'+Number(r.volume_sats||0).toLocaleString()+'</td>'
+            +'<td style="padding:7px 8px;text-align:right;color:#e2e8f0">'+rev.toFixed(2)+'</td>'
+            +'<td style="padding:7px 8px;text-align:right;font-weight:600;color:'+pc+'">'+profit.toFixed(2)+'</td>'
+            +'<td style="padding:7px 8px;text-align:right"><div style="display:flex;align-items:center;gap:6px;justify-content:flex-end"><div style="width:60px;height:6px;background:#1e293b;border-radius:3px"><div style="width:'+share+'%;height:100%;background:'+col+';border-radius:3px;max-width:100%"></div></div><span style="color:#64748b;width:32px;text-align:right">'+share+'%</span></div></td>'
+            +'</tr>';
+    });
+    const tpc=totProfit>=0?'#10b981':'#ef4444';
+    h+='</tbody><tfoot><tr style="border-top:2px solid #334155;font-weight:700;color:#f1f5f9">'
+        +'<td style="padding:8px 8px">Total</td>'
+        +'<td style="padding:8px 8px;text-align:right">'+totCount+'</td>'
+        +'<td style="padding:8px 8px;text-align:right">'+totVol.toLocaleString()+'</td>'
+        +'<td style="padding:8px 8px;text-align:right">'+totalRev.toFixed(2)+'</td>'
+        +'<td style="padding:8px 8px;text-align:right;color:'+tpc+'">'+totProfit.toFixed(2)+'</td>'
+        +'<td></td>'
+        +'</tr></tfoot></table>';
+    el.innerHTML=h;}catch(e){console.error(e);}}
+
+function loadAll(){loadStatus();loadProfit();loadMethodStats();loadEvents();loadBotStatus();}
 loadAll();loadMarket();
 setInterval(loadAll,30000);setInterval(loadMarket,300000);
 

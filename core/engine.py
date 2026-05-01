@@ -181,6 +181,7 @@ class TradingEngine:
         self._last_stale_check = None
         self._last_consolidation_check = None
         self._last_auto_buy_check = 0
+        self._last_offer_created_at = 0
         self._last_auto_fund_wallet_check = 0
         self._last_contracted_offers_save = 0
         self._platform_down_since = {}     # {name: timestamp} — when platform first became unreachable
@@ -241,6 +242,7 @@ class TradingEngine:
                 "amount_sats": amount_sats, "funded": False,
                 "funding_in_progress": True, "premium": premium,
                 "sepa_account_index": sepa_account_index}
+        self._last_offer_created_at = time.time()
         self.trade_logger.log_event("peach", "offer_created", offer_id)
     def get_best_exchange(self):
         best = None
@@ -398,6 +400,13 @@ class TradingEngine:
             unfunded = [oid for oid, info in self.pending_escrows.items() if not info.get("funded")]
         if unfunded:
             log.info(f"auto_buy_escrow: skipping — {len(unfunded)} offer(s) still awaiting funding")
+            return
+        # Also block if an offer was created recently — prevents rapid re-trigger when a
+        # Kraken withdrawal arrives quickly and sets funded=True within the same interval.
+        min_since_creation = max(interval, 1800)  # at least 30 min between offer creations
+        since_last = now - self._last_offer_created_at
+        if self._last_offer_created_at and since_last < min_since_creation:
+            log.info(f"auto_buy_escrow: skipping — last offer created {int(since_last)}s ago (min {min_since_creation}s)")
             return
         amounts = cfg.get("amounts", [500, 400, 300, 200])
         mode = cfg.get("mode", "norev")
@@ -791,6 +800,9 @@ class TradingEngine:
             "sepa": sepa_iban,
             "instantSepa": n26_iban,
             "wise": json.dumps({"userName": wise_user, "reference": ""}),
+            "skrill": raw.get("skrill", ""),
+            "n26": raw.get("n26", ""),
+            "paysera": raw.get("paysera", ""),
             "solanausdt": raw.get("solanausdt", ""),
             "arbitrumusdt": raw.get("arbitrumusdt", ""),
             "ethereumusdt": raw.get("ethereumusdt", ""),
@@ -803,6 +815,9 @@ class TradingEngine:
             "sepa": info.get("sepa", {"iban": sepa_iban, "beneficiary": beneficiary}),
             "instantSepa": info.get("instantSepa", {"iban": n26_iban, "beneficiary": beneficiary}),
             "wise": info.get("wise", {"userName": wise_user, "reference": ""}),
+            "skrill": info.get("skrill", {"email": raw.get("skrill", "")}),
+            "n26": info.get("n26", {"phone": raw.get("n26", "")}),
+            "paysera": info.get("paysera", {"phone": raw.get("paysera", "")}),
             "solanausdt": info.get("solanausdt", {"address": raw.get("solanausdt", "")}),
             "arbitrumusdt": info.get("arbitrumusdt", {"address": raw.get("arbitrumusdt", "")}),
             "ethereumusdt": info.get("ethereumusdt", {"address": raw.get("ethereumusdt", "")}),
@@ -828,9 +843,19 @@ class TradingEngine:
                 bic = acct.get("bic", "")
                 ben = acct.get("beneficiary", beneficiary)
                 offer_payment_data_map["sepa"] = iban
-                offer_payment_data_map["instantSepa"] = iban
                 offer_payment_info_map["sepa"] = {"iban": iban, "beneficiary": ben, "bic": bic}
-                offer_payment_info_map["instantSepa"] = {"iban": iban, "beneficiary": ben, "bic": bic}
+                # If account has no SEPA Instant, fall back to named or first instant account
+                if not acct.get("instant", True):
+                    fallback_name = acct.get("instant_fallback")
+                    instant_acct = next((a for a in sepa_accounts if fallback_name and a.get("name") == fallback_name), None) \
+                                or next((a for a in sepa_accounts if a.get("instant", True)), acct)
+                    instant_iban = instant_acct["iban"].replace(" ", "")
+                    instant_bic = instant_acct.get("bic", bic)
+                    instant_ben = instant_acct.get("beneficiary", ben)
+                else:
+                    instant_iban, instant_bic, instant_ben = iban, bic, ben
+                offer_payment_data_map["instantSepa"] = instant_iban
+                offer_payment_info_map["instantSepa"] = {"iban": instant_iban, "beneficiary": instant_ben, "bic": instant_bic}
 
             try:
                 # Use v069 API (the working endpoint!)
