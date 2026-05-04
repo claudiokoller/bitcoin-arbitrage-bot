@@ -20,7 +20,6 @@ Buy BTC at spot price on an exchange, sell at a 3–6% premium on a P2P marketpl
 
 - **Multi-currency**: CHF, EUR, USD, USDT support
 - **Multi-payment**: Twint, SEPA, SEPA Instant, Revolut, Wise, Skrill, N26, Paysera, USDT (Solana/Arbitrum/Ethereum)
-- **SEPA account rotation**: Round-robin across N26, Wise, Yuh, Paysera per offer (with per-account SEPA Instant support flags)
 - **HD escrow keys**: BIP32 derivation per offer (`m/84'/0'/0'/{offerId}'`)
 - **PGP encryption**: Symmetric key exchange for payment data
 - **Auto premium reduction**: Live PATCH on stale offers (no cancel/refund cycle)
@@ -70,7 +69,6 @@ See `config.example.json` for all options. Key settings:
 - **Exchange**: API key/secret, trading pair, withdrawal key
 - **P2P Platform**: Private key (secp256k1), mnemonic (BIP39), PGP keypair
 - **Payment methods**: Per-currency method list (CHF/EUR/USD/USDT)
-- **SEPA accounts**: Round-robin account rotation with per-account instant flag
 - **Premium**: Base premium (typically 3–6%), floor, auto-reduction interval
 - **Auto buy-escrow**: Interval (effective 30 min), amounts, fixed premium, excluded methods
 - **Telegram**: Bot token + chat ID for notifications
@@ -82,7 +80,6 @@ See `config.example.json` for all options. Key settings:
 - **Live premium PATCH**: Instead of cancelling stale offers (which triggers on-chain refund), premium is reduced via PATCH on the live offer.
 - **Dual fill detection**: Exchange order queries can be slow. After 15s, the bot also checks balance changes as a fallback to detect filled orders faster.
 - **Buy data preservation**: Actual exchange buy price is preserved through the full escrow lifecycle for accurate profit calculation.
-- **SEPA rotation**: Each offer is assigned a SEPA account index at creation time. The engine uses the stored index when accepting trade requests, ensuring the buyer receives the correct IBAN even after restarts.
 - **30 min offer cooldown**: Auto buy-escrow enforces a 30-minute minimum between offer creations to prevent rapid re-triggering when a Kraken withdrawal arrives faster than the check interval.
 
 ## Disclaimer
