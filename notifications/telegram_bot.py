@@ -200,7 +200,19 @@ class TelegramBot:
         pl = "\n".join(plines)
         el = "\n".join(elines)
         uptime = s.get('uptime', '?')
-        text = f"<b>Status</b> {paused} ({uptime})\nSpot: {spot:,.0f} CHF\n\n<b>Plattformen</b>\n{pl}\n\n<b>Exchanges</b>\n{el}\n\nOffers: {s['pending_escrows']} pending, {s['funded_escrows']} funded\nHeute: {s['daily_volume_sats']:,} sats"
+        # Next SEPA account in rotation
+        pconfig = self.engine.config.get("platforms", {}).get("peach", {})
+        sepa_accounts = pconfig.get("sepa_accounts", [])
+        sepa_line = ""
+        if sepa_accounts:
+            try:
+                with open(self._sepa_index_file) as f:
+                    cur_idx = json.load(f).get("index", 0)
+            except Exception:
+                cur_idx = 0
+            next_acct = sepa_accounts[cur_idx % len(sepa_accounts)]
+            sepa_line = f"\nSEPA-Konto (nächstes): {next_acct.get('name','?')} [{next_acct.get('iban','')[-4:]}]"
+        text = f"<b>Status</b> {paused} ({uptime})\nSpot: {spot:,.0f} CHF\n\n<b>Plattformen</b>\n{pl}\n\n<b>Exchanges</b>\n{el}\n\nOffers: {s['pending_escrows']} pending, {s['funded_escrows']} funded\nHeute: {s['daily_volume_sats']:,} sats{sepa_line}"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("Refresh",callback_data="refresh_status"), InlineKeyboardButton("Pause" if not s["paused"] else "Resume",callback_data="toggle_pause")]])
         await update.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
     async def cmd_balance(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -723,6 +735,7 @@ class TelegramBot:
 
         label = f" (ohne {', '.join(exclude_methods)})" if exclude_methods else ""
         log.info(f"auto_fund_wallet: creating offer for {amount_sats:,} sats{label}")
+        _registered_offer_id = None
         try:
             min_sats = pconfig.get("min_amount_sats", 10000)
             max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
@@ -744,6 +757,7 @@ class TelegramBot:
                 except Exception as e:
                     log.warning(f"auto_fund_wallet create_escrow: {e}")
             self.engine.add_pending_escrow(offer.id, escrow_addr, max_sats, premium, sepa_account_index=sepa_idx)
+            _registered_offer_id = offer.id
             log.info(f"auto_fund_wallet: offer {offer.id} escrow={escrow_addr} amount={max_sats} sepa_idx={sepa_idx}")
 
             self.notifier._send(
@@ -763,6 +777,11 @@ class TelegramBot:
         except Exception as e:
             log.exception(f"auto_fund_wallet: {e}")
             self.notifier._send(f"❌ <b>Auto Fund Wallet Fehler</b>\n{str(e)[:300]}")
+            if _registered_offer_id:
+                with self.engine._escrow_lock:
+                    removed = self.engine.pending_escrows.pop(_registered_offer_id, None)
+                if removed:
+                    log.warning(f"auto_fund_wallet: removed dangling pending_escrow for {_registered_offer_id} after error")
 
     def _run_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
         """Synchronous buy-escrow flow for auto-trigger. Mirrors _execute_buy_escrow."""

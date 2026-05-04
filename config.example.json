@@ -42,25 +42,33 @@
             "min_amount_sats": 50000,
             "max_amount_sats": 500000,
             "payment_methods": {
-                "CHF": ["twint", "revolut", "wise"],
-                "EUR": ["sepa", "instantSepa", "revolut", "wise"],
-                "USD": ["revolut", "wise"]
+                "CHF": ["twint", "revolut", "skrill"],
+                "EUR": ["sepa", "instantSepa", "revolut", "wise", "skrill", "n26", "paysera"],
+                "USD": ["revolut", "wise", "skrill"]
             },
             "payment_data_raw": {
                 "twint": "+41XXXXXXXXX",
                 "revolut": "@username",
                 "wise": "@username",
-                "sepa": "CHXXXXXXXXXX",
-                "instantSepa": "DEXXXXXXXXXX"
+                "skrill": "your@email.com",
+                "n26": "+41XXXXXXXXX",
+                "paysera": "+41XXXXXXXXX"
             },
             "payment_data_info": {
                 "beneficiary": "Your Name",
                 "twint": {"phone": "+41XXXXXXXXX"},
                 "revolut": {"userName": "@username", "reference": ""},
                 "wise": {"userName": "@username", "reference": ""},
-                "sepa": {"iban": "CHXXXXXXXXXX", "beneficiary": "Your Name", "bic": "XXXXXXXX"},
-                "instantSepa": {"iban": "DEXXXXXXXXXX", "beneficiary": "Your Name", "bic": "XXXXXXXX"}
-            }
+                "skrill": {"email": "your@email.com"},
+                "n26": {"phone": "+41XXXXXXXXX", "email": "your@email.com"},
+                "paysera": {"phone": "+41XXXXXXXXX"}
+            },
+            "sepa_accounts": [
+                {"iban": "DEXXXXXXXXXX", "bic": "NTSBDEB1XXX", "beneficiary": "Your Name", "name": "N26", "instant": true},
+                {"iban": "BEXXXXXXXXXX", "bic": "TRWIBEB1XXX", "beneficiary": "Your Name", "name": "Wise", "instant": true},
+                {"iban": "CHXXXXXXXXXX", "bic": "SWQBCHZZXXX", "beneficiary": "Your Name", "name": "Yuh", "instant": false, "instant_fallback": "Paysera"},
+                {"iban": "LTXXXXXXXXXX", "bic": "EVIULT2VXXX", "beneficiary": "Your Name", "name": "Paysera", "instant": true}
+            ]
         }
     }
 }

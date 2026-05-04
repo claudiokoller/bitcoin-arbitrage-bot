@@ -314,13 +314,15 @@ def api_profit():
 def api_profit_by_method():
     db = get_db()
     if not db: return jsonify([])
-    rows = db.execute("""
+    days = request.args.get("days", "0", type=str)
+    where = f"WHERE timestamp > datetime('now', '-{days} days')" if days and days != "0" else ""
+    rows = db.execute(f"""
         SELECT payment_method,
                COUNT(*) as count,
                COALESCE(SUM(net_profit),0) as profit,
                COALESCE(SUM(sell_price_chf),0) as revenue,
                COALESCE(SUM(amount_sats),0) as volume_sats
-        FROM trades
+        FROM trades {where}
         GROUP BY payment_method
         ORDER BY count DESC
     """).fetchall()
@@ -1111,7 +1113,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
             <div class="sec"><div class="s-hd"><span>&#x1f4b0; Kumulativer P/L</span></div><div style="height:250px;position:relative"><canvas id="cumulChart"></canvas></div></div>
         </div>
         <div class="sec" style="margin-bottom:20px">
-            <div class="s-hd"><span>&#x1f4b3; Umsatz &amp; Gewinn nach Zahlungsmethode</span></div>
+            <div class="s-hd"><span>&#x1f4b3; Umsatz &amp; Gewinn nach Zahlungsmethode</span>
+                <select id="methodDays" onchange="loadMethodStats()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:2px 6px;font-size:.72rem">
+                    <option value="30">30d</option>
+                    <option value="90">90d</option>
+                    <option value="180">180d</option>
+                    <option value="0" selected>Gesamt</option>
+                </select>
+            </div>
             <div id="methodStats" style="overflow-x:auto"></div>
         </div>
         <div class="cow-empty" id="cowEmpty" style="display:flex">
@@ -1150,7 +1159,9 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <!-- TAB: Trades -->
     <div id="tab-trades" class="tab-content">
         <div class="sec">
-            <div class="s-hd"><span>&#x1f4b0; Trade-Gewinnrechnung</span><span class="s-badge" id="tradeCount">--</span></div>
+            <div class="s-hd"><span>&#x1f4b0; Trade-Gewinnrechnung</span><span class="s-badge" id="tradeCount">--</span>
+                <input id="tradesSearch" type="text" placeholder="Suche (Methode, Datum…)" oninput="filterTrades()" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:3px 8px;font-size:.72rem;margin-left:8px;width:170px">
+            </div>
             <div id="tradesList" style="overflow-x:auto">
                 <table style="width:100%;border-collapse:collapse;font-size:.72rem">
                     <thead><tr style="border-bottom:2px solid #1e293b;color:#64748b">
@@ -1276,10 +1287,19 @@ async function loadStatus(){
     }catch(e){console.error(e)}
 }
 
+let _allTrades=[];
+function filterTrades(){
+    const q=(document.getElementById('tradesSearch')?.value||'').toLowerCase();
+    const filtered=q?_allTrades.filter(t=>(t.payment_method||'').toLowerCase().includes(q)||(t.timestamp||'').includes(q)||(t.currency||'').toLowerCase().includes(q)||(t.contract_id||'').toLowerCase().includes(q)):_allTrades;
+    renderTrades(filtered);
+}
 async function loadTrades(){
-    try{const r=await fetch('/api/trades');const trades=await r.json();
+    try{const r=await fetch('/api/trades');_allTrades=await r.json();
+    renderTrades(_allTrades);}catch(e){console.error(e)}}
+function renderTrades(trades){
+    try{
     const body=document.getElementById('tradesBody'),foot=document.getElementById('tradesFoot');
-    document.getElementById('tradeCount').textContent=trades.length+' trades';
+    document.getElementById('tradeCount').textContent=trades.length+' / '+_allTrades.length+' trades';
     if(!trades.length){body.innerHTML='<tr><td colspan="9" style="text-align:center;padding:20px;color:#475569">Keine Trades vorhanden</td></tr>';foot.innerHTML='';return;}
     // Totals
     let tNet=0,tSats=0;
@@ -1594,7 +1614,7 @@ async function loadKraken(){
 }
 
 async function loadMethodStats(){
-    try{const r=await fetch('/api/profit/by-method');const rows=await r.json();
+    try{const days=document.getElementById('methodDays')?.value||'0';const r=await fetch('/api/profit/by-method?days='+days);const rows=await r.json();
     const el=document.getElementById('methodStats');if(!rows.length){el.innerHTML='<div style="color:#64748b;font-size:.8rem;padding:8px">Keine Daten</div>';return;}
     const pmLabel={'twint':'Twint','revolut':'Revolut','wise':'Wise','sepa':'SEPA','instantSepa':'SEPA Instant','skrill':'Skrill','n26':'N26','paysera':'Paysera','solanausdt':'USDT (Solana)','arbitrumusdt':'USDT (Arbitrum)','ethereumusdt':'USDT (Ethereum)'};
     const pmColor={'twint':'#10b981','revolut':'#8b5cf6','wise':'#06b6d4','sepa':'#f59e0b','instantSepa':'#f97316','skrill':'#ec4899','n26':'#ec4899','paysera':'#ec4899','solanausdt':'#14b8a6','arbitrumusdt':'#14b8a6','ethereumusdt':'#14b8a6'};
