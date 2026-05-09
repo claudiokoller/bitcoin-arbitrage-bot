@@ -416,30 +416,39 @@ class TradingEngine:
         if self._last_offer_created_at and since_last < min_since_creation:
             log.info(f"auto_buy_escrow: skipping — last offer created {int(since_last)}s ago (min {min_since_creation}s)")
             return
-        amounts = sorted(cfg.get("amounts", [200, 300, 400, 500, 600]))  # ascending for fallback
+        raw_amounts = cfg.get("amounts", [200, 300, 400, 500, 600])
+        remainder_min = cfg.get("remainder_min", 100)  # min balance for remainder slot
+        numeric_amounts = sorted([a for a in raw_amounts if isinstance(a, (int, float))])
+        has_remainder = "remainder" in raw_amounts
+        all_slots = numeric_amounts + (["remainder"] if has_remainder else [])
         mode = cfg.get("mode", "norev")
         exclude_methods = [] if mode == "withrev" else cfg.get("exclude_methods", ["revolut"])
-        # Pick target amount by rotation, fall back to smaller if balance insufficient
-        target = amounts[self._auto_buy_amount_index % len(amounts)]
-        triggered = False
         for ex in self.exchanges.values():
             try:
                 fiat_balance = ex.get_fiat_balance()
                 currency = ex.get_fiat_currency() if hasattr(ex, "get_fiat_currency") else "?"
-                # Try target amount first, then fall back to smaller amounts
+                target = all_slots[self._auto_buy_amount_index % len(all_slots)]
                 chosen = None
-                for amount in sorted([a for a in amounts if a <= target], reverse=True):
-                    if fiat_balance >= amount * 0.98:
-                        chosen = amount
-                        break
+                if target == "remainder":
+                    min_standard = numeric_amounts[0] if numeric_amounts else 200
+                    if remainder_min <= fiat_balance < min_standard * 0.98:
+                        chosen = fiat_balance * 0.98
+                    else:
+                        # Balance too high (normal slots handle it) or too low → skip but advance
+                        self._auto_buy_amount_index = (self._auto_buy_amount_index + 1) % len(all_slots)
+                        continue
+                else:
+                    # Try target first, fall back to smaller standard amounts
+                    for amount in sorted([a for a in numeric_amounts if a <= target], reverse=True):
+                        if fiat_balance >= amount * 0.98:
+                            chosen = amount
+                            break
                 if chosen:
-                    log.info(f"auto_buy_escrow: triggering {ex.name} {chosen:.0f} {currency} (target {target:.0f}, balance: {fiat_balance:.2f})")
+                    log.info(f"auto_buy_escrow: triggering {ex.name} {chosen:.0f} {currency} (target {target}, balance: {fiat_balance:.2f})")
                     self.notifier.trigger_auto_buy_escrow(ex, float(chosen), exclude_methods)
-                    triggered = True
+                    self._auto_buy_amount_index = (self._auto_buy_amount_index + 1) % len(all_slots)
             except Exception as e:
                 log.warning(f"auto_buy_escrow check {ex.name}: {e}")
-        if triggered:
-            self._auto_buy_amount_index = (self._auto_buy_amount_index + 1) % len(amounts)
 
     def _auto_fund_wallet_check(self):
         """Create a Peach offer for any unallocated confirmed BTC on the hot wallet.

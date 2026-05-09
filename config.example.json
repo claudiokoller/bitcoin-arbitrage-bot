@@ -25,7 +25,8 @@
     "auto_buy_escrow": {
         "enabled": true,
         "check_interval_sec": 600,
-        "amounts": [200, 300, 400, 500, 600],
+        "amounts": [200, 300, 400, 500, 600, "remainder"],
+        "remainder_min": 100,
         "premium": 5.5,
         "exclude_methods": ["revolut"],
         "min_wallet_fund_chf": 100
