@@ -182,6 +182,7 @@ class TradingEngine:
         self._last_consolidation_check = None
         self._last_auto_buy_check = 0
         self._last_offer_created_at = 0
+        self._auto_buy_amount_index = 0
         self._last_auto_fund_wallet_check = 0
         self._last_contracted_offers_save = 0
         self._platform_down_since = {}     # {name: timestamp} — when platform first became unreachable
@@ -242,6 +243,13 @@ class TradingEngine:
                 "amount_sats": amount_sats, "funded": False,
                 "funding_in_progress": True, "premium": premium,
                 "sepa_account_index": sepa_account_index}
+        # Persist sepa_account_index immediately so it survives restarts
+        # (premium reduction only saves it after 12h — too late if bot restarts before that)
+        self._escrow_state[str(offer_id)] = {
+            "premium": premium,
+            "sepa_account_index": sepa_account_index
+        }
+        self._save_escrow_state()
         self._last_offer_created_at = time.time()
         self.trade_logger.log_event("peach", "offer_created", offer_id)
     def get_best_exchange(self):
@@ -408,20 +416,30 @@ class TradingEngine:
         if self._last_offer_created_at and since_last < min_since_creation:
             log.info(f"auto_buy_escrow: skipping — last offer created {int(since_last)}s ago (min {min_since_creation}s)")
             return
-        amounts = cfg.get("amounts", [500, 400, 300, 200])
+        amounts = sorted(cfg.get("amounts", [200, 300, 400, 500, 600]))  # ascending for fallback
         mode = cfg.get("mode", "norev")
         exclude_methods = [] if mode == "withrev" else cfg.get("exclude_methods", ["revolut"])
+        # Pick target amount by rotation, fall back to smaller if balance insufficient
+        target = amounts[self._auto_buy_amount_index % len(amounts)]
+        triggered = False
         for ex in self.exchanges.values():
             try:
                 fiat_balance = ex.get_fiat_balance()
                 currency = ex.get_fiat_currency() if hasattr(ex, "get_fiat_currency") else "?"
-                for amount in amounts:
+                # Try target amount first, then fall back to smaller amounts
+                chosen = None
+                for amount in sorted([a for a in amounts if a <= target], reverse=True):
                     if fiat_balance >= amount * 0.98:
-                        log.info(f"auto_buy_escrow: triggering {ex.name} {amount:.0f} {currency} (balance: {fiat_balance:.2f})")
-                        self.notifier.trigger_auto_buy_escrow(ex, float(amount), exclude_methods)
-                        break  # one offer per exchange per cycle
+                        chosen = amount
+                        break
+                if chosen:
+                    log.info(f"auto_buy_escrow: triggering {ex.name} {chosen:.0f} {currency} (target {target:.0f}, balance: {fiat_balance:.2f})")
+                    self.notifier.trigger_auto_buy_escrow(ex, float(chosen), exclude_methods)
+                    triggered = True
             except Exception as e:
                 log.warning(f"auto_buy_escrow check {ex.name}: {e}")
+        if triggered:
+            self._auto_buy_amount_index = (self._auto_buy_amount_index + 1) % len(amounts)
 
     def _auto_fund_wallet_check(self):
         """Create a Peach offer for any unallocated confirmed BTC on the hot wallet.

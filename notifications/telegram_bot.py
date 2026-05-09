@@ -738,7 +738,7 @@ class TelegramBot:
         _registered_offer_id = None
         try:
             min_sats = pconfig.get("min_amount_sats", 10000)
-            max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            max_sats = max(amount_sats, min_sats)
             payment_methods = self._filter_payment_methods(
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             auto_cfg = self.engine.config.get("auto_buy_escrow", {})
@@ -813,7 +813,7 @@ class TelegramBot:
             gross_sats = int((amount_fiat / spot) * 1e8)
             amount_sats = int(gross_sats * 0.99) - withdraw_fee_sats
             min_sats = pconfig.get("min_amount_sats", 10000)
-            max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            max_sats = max(amount_sats, min_sats)
             payment_methods = self._filter_payment_methods(
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             auto_cfg = self.engine.config.get("auto_buy_escrow", {})
@@ -954,7 +954,7 @@ class TelegramBot:
         label = f" (ohne {', '.join(exclude_methods)})" if exclude_methods else ""
         try:
             min_sats = pconfig.get("min_amount_sats", 10000)
-            max_sats = max(min(requested_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            max_sats = max(requested_sats, min_sats)
 
             await _tg(
                 f"<b>Fund-Flow{label}</b>\n"
@@ -1018,7 +1018,7 @@ class TelegramBot:
             spot = await loop.run_in_executor(None, exchange.get_spot_price)
             amount_fiat = (requested_sats / 1e8) * spot
             min_sats = pconfig.get("min_amount_sats", 10000)
-            max_sats = max(min(requested_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            max_sats = max(requested_sats, min_sats)
             payment_methods = self._filter_payment_methods(
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             sepa_idx = self._next_sepa_index(len(pconfig.get("sepa_accounts", [])))
@@ -1097,7 +1097,7 @@ class TelegramBot:
             gross_sats = int((amount_fiat / spot) * 1e8)
             amount_sats = int(gross_sats * 0.99) - withdraw_fee_sats
             min_sats = pconfig.get("min_amount_sats", 10000)
-            max_sats = max(min(amount_sats, pconfig.get("max_amount_sats", 560000)), min_sats)
+            max_sats = max(amount_sats, min_sats)
             payment_methods = self._filter_payment_methods(
                 pconfig.get("payment_methods", {"EUR": ["sepa", "revolut"]}), exclude_methods)
             premium = manual_premium if manual_premium is not None else self.engine.pricer.get_premium("peach", peach)

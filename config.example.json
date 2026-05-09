@@ -25,7 +25,7 @@
     "auto_buy_escrow": {
         "enabled": true,
         "check_interval_sec": 600,
-        "amounts": [500, 400, 300, 200],
+        "amounts": [200, 300, 400, 500, 600],
         "premium": 5.5,
         "exclude_methods": ["revolut"],
         "min_wallet_fund_chf": 100
@@ -40,7 +40,6 @@
             "pgp_public_key": "",
             "target_premium": 6.0,
             "min_amount_sats": 50000,
-            "max_amount_sats": 500000,
             "payment_methods": {
                 "CHF": ["twint", "revolut", "skrill"],
                 "EUR": ["sepa", "instantSepa", "revolut", "wise", "skrill", "n26", "paysera"],
