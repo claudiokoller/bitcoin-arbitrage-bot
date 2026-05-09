@@ -175,6 +175,8 @@ class TradingEngine:
         self._start_time = datetime.now()
         self._last_daily_summary = None
         self._last_weekly_summary = None
+        self._last_monthly_summary = None
+        self._last_yearly_summary = None
         self._pending_refunds = {}  # {offer_id: {escrow_addr, amount_sats, created}}
         self._last_refund_check = None
         self._premium_reductions = {}  # {offer_id: original_premium} for tracking reductions
@@ -334,6 +336,8 @@ class TradingEngine:
             except Exception as e: log.error(f"{name}: {e}")
         self._check_daily_summary()
         self._check_weekly_summary()
+        self._check_monthly_summary()
+        self._check_yearly_summary()
         self._check_low_balance()
         self._check_pending_refunds()
         self._auto_consolidate_utxos()
@@ -368,6 +372,38 @@ class TradingEngine:
                 self.notifier.notify_weekly_summary(w, b)
             except Exception as e:
                 log.debug(f"Weekly summary: {e}")
+    def _check_monthly_summary(self):
+        import calendar
+        now = datetime.now()
+        last_day = calendar.monthrange(now.year, now.month)[1]
+        if now.day != last_day or now.hour != 22: return
+        month_key = (now.year, now.month)
+        if self._last_monthly_summary and (self._last_monthly_summary.year, self._last_monthly_summary.month) == month_key:
+            return
+        self._last_monthly_summary = now
+        if self.notifier:
+            try:
+                since = datetime(now.year, now.month, 1).isoformat()
+                month_name = now.strftime("%B %Y")
+                s = self.trade_logger.get_since_summary(since, month_name)
+                self.notifier.notify_period_summary(s, f"Monatsrückblick {month_name}", "📅")
+            except Exception as e:
+                log.debug(f"Monthly summary: {e}")
+
+    def _check_yearly_summary(self):
+        now = datetime.now()
+        if now.month != 12 or now.day != 31 or now.hour != 22: return
+        if self._last_yearly_summary and self._last_yearly_summary.year == now.year:
+            return
+        self._last_yearly_summary = now
+        if self.notifier:
+            try:
+                since = datetime(now.year, 1, 1).isoformat()
+                s = self.trade_logger.get_since_summary(since, str(now.year))
+                self.notifier.notify_period_summary(s, f"Jahresrückblick {now.year}", "🎆")
+            except Exception as e:
+                log.debug(f"Yearly summary: {e}")
+
     def _check_low_balance(self):
         now = datetime.now()
         if now.minute not in (0, 1): return  # check at top of hour (tolerant of 30s tick)

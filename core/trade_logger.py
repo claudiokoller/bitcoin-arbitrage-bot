@@ -104,6 +104,13 @@ class TradeLogger:
         with sqlite3.connect(self.db_path) as conn:
             row = conn.execute(f"SELECT COUNT(*),COALESCE(SUM(amount_sats),0),COALESCE(SUM(sell_price),0),COALESCE(SUM(net_profit),0),COALESCE(AVG(premium_pct),0) FROM trades {where}", params).fetchone()
             return {"count":row[0],"total_sats":row[1],"total_revenue":row[2],"total_profit":row[3],"avg_premium":row[4],"days":days}
+    def get_since_summary(self, since_iso: str, label: str = ""):
+        """Summary from a specific ISO date string until now."""
+        where = "WHERE timestamp >= ? AND status='completed'"
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(f"SELECT COUNT(*),COALESCE(SUM(amount_sats),0),COALESCE(SUM(sell_price),0),COALESCE(SUM(net_profit),0),COALESCE(AVG(premium_pct),0) FROM trades {where}", (since_iso,)).fetchone()
+            return {"count":row[0],"total_sats":row[1],"total_revenue":row[2],"total_profit":row[3],"avg_premium":row[4],"label":label}
+
     def get_platform_breakdown(self, days=30):
         since = (datetime.now() - timedelta(days=days)).isoformat()
         with sqlite3.connect(self.db_path) as conn:

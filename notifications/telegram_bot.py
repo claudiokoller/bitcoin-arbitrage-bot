@@ -33,6 +33,18 @@ class TelegramNotifier:
     def notify_daily_summary(self, s):
         self._send(f"<b>Heute:</b> {s['count']} Trades | {s['total_profit']:.2f} CHF")
 
+    def notify_period_summary(self, s, title, emoji):
+        profit = s.get('total_profit', 0)
+        count = s.get('count', 0)
+        sats = s.get('total_sats', 0)
+        avg_prem = s.get('avg_premium', 0)
+        sign = "+" if profit >= 0 else ""
+        self._send(
+            f"<b>{emoji} {title}</b>\n"
+            f"Trades: {count} | Volumen: {sats:,} sats\n"
+            f"Profit: <b>{sign}{profit:.2f} CHF</b>\n"
+            f"Ø Premium: {avg_prem:.1f}%")
+
     def notify_weekly_summary(self, w, breakdown):
         profit = w.get('total_profit', 0)
         count = w.get('count', 0)
