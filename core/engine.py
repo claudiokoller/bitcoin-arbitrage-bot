@@ -353,8 +353,8 @@ class TradingEngine:
             self._last_daily_summary = now
             if self.notifier:
                 try:
-                    s = self.trade_logger.get_daily_summary()
                     since = datetime(now.year, now.month, now.day).isoformat()
+                    s = self.trade_logger.get_since_summary(since, "Tagesrückblick")
                     b = self.trade_logger.get_method_breakdown(since)
                     self.notifier.notify_daily_summary(s, b)
                 except Exception as e:
@@ -370,7 +370,7 @@ class TradingEngine:
         if self.notifier:
             try:
                 since = (now - __import__('datetime').timedelta(days=7)).isoformat()
-                w = self.trade_logger.get_period_summary(days=7)
+                w = self.trade_logger.get_since_summary(since, "Wochenrückblick")
                 b = self.trade_logger.get_method_breakdown(since)
                 self.notifier.notify_weekly_summary(w, b)
             except Exception as e:

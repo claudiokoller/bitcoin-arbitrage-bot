@@ -43,13 +43,7 @@ class TelegramNotifier:
         return lines
 
     def notify_daily_summary(self, s, breakdown=None):
-        profit = s.get('total_profit', 0)
-        sign = "+" if profit >= 0 else ""
-        lines = [f"<b>📆 Tagesrückblick</b>",
-                 f"Trades: {s['count']} | Profit: <b>{sign}{profit:.2f} CHF</b>"]
-        if breakdown:
-            lines += self._method_breakdown_lines(breakdown)
-        self._send("\n".join(lines))
+        self.notify_period_summary(s, "Tagesrückblick", "📆", breakdown)
 
     def notify_period_summary(self, s, title, emoji, breakdown=None):
         profit = s.get('total_profit', 0)
