@@ -354,7 +354,9 @@ class TradingEngine:
             if self.notifier:
                 try:
                     s = self.trade_logger.get_daily_summary()
-                    self.notifier.notify_daily_summary(s)
+                    since = datetime(now.year, now.month, now.day).isoformat()
+                    b = self.trade_logger.get_method_breakdown(since)
+                    self.notifier.notify_daily_summary(s, b)
                 except Exception as e:
                     log.debug(f"Daily summary: {e}")
 
@@ -367,8 +369,9 @@ class TradingEngine:
         self._last_weekly_summary = now
         if self.notifier:
             try:
+                since = (now - __import__('datetime').timedelta(days=7)).isoformat()
                 w = self.trade_logger.get_period_summary(days=7)
-                b = self.trade_logger.get_platform_breakdown(days=7)
+                b = self.trade_logger.get_method_breakdown(since)
                 self.notifier.notify_weekly_summary(w, b)
             except Exception as e:
                 log.debug(f"Weekly summary: {e}")
@@ -386,7 +389,8 @@ class TradingEngine:
                 since = datetime(now.year, now.month, 1).isoformat()
                 month_name = now.strftime("%B %Y")
                 s = self.trade_logger.get_since_summary(since, month_name)
-                self.notifier.notify_period_summary(s, f"Monatsrückblick {month_name}", "📅")
+                b = self.trade_logger.get_method_breakdown(since)
+                self.notifier.notify_period_summary(s, f"Monatsrückblick {month_name}", "📅", b)
             except Exception as e:
                 log.debug(f"Monthly summary: {e}")
 
@@ -400,7 +404,8 @@ class TradingEngine:
             try:
                 since = datetime(now.year, 1, 1).isoformat()
                 s = self.trade_logger.get_since_summary(since, str(now.year))
-                self.notifier.notify_period_summary(s, f"Jahresrückblick {now.year}", "🎆")
+                b = self.trade_logger.get_method_breakdown(since)
+                self.notifier.notify_period_summary(s, f"Jahresrückblick {now.year}", "🎆", b)
             except Exception as e:
                 log.debug(f"Yearly summary: {e}")
 

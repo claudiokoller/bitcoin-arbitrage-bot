@@ -111,6 +111,16 @@ class TradeLogger:
             row = conn.execute(f"SELECT COUNT(*),COALESCE(SUM(amount_sats),0),COALESCE(SUM(sell_price),0),COALESCE(SUM(net_profit),0),COALESCE(AVG(premium_pct),0) FROM trades {where}", (since_iso,)).fetchone()
             return {"count":row[0],"total_sats":row[1],"total_revenue":row[2],"total_profit":row[3],"avg_premium":row[4],"label":label}
 
+    def get_method_breakdown(self, since_iso: str):
+        """Payment method breakdown from a specific ISO date until now."""
+        with sqlite3.connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT payment_method, COUNT(*), COALESCE(SUM(net_profit),0) "
+                "FROM trades WHERE timestamp >= ? AND status='completed' "
+                "GROUP BY payment_method ORDER BY COUNT(*) DESC",
+                (since_iso,)).fetchall()
+            return [{"method": r[0] or "-", "count": r[1], "profit": r[2]} for r in rows if r[1] > 0]
+
     def get_platform_breakdown(self, days=30):
         since = (datetime.now() - timedelta(days=days)).isoformat()
         with sqlite3.connect(self.db_path) as conn:

@@ -30,40 +30,44 @@ class TelegramNotifier:
         self._send(f"<b>Error</b>\n<code>{err[:400]}</code>")
     def notify_low_balance(self, fiat, currency="CHF"):
         self._send(f"<b>Low:</b> {fiat:.2f} {currency}")
-    def notify_daily_summary(self, s):
-        self._send(f"<b>Heute:</b> {s['count']} Trades | {s['total_profit']:.2f} CHF")
+    def _method_breakdown_lines(self, breakdown):
+        lines = []
+        method_labels = {"twint":"Twint","revolut":"Revolut","wise":"Wise","sepa":"SEPA",
+                         "instantSepa":"SEPA Instant","skrill":"Skrill","n26":"N26",
+                         "paysera":"Paysera","solanausdt":"USDT (SOL)","arbitrumusdt":"USDT (ARB)",
+                         "ethereumusdt":"USDT (ETH)"}
+        for b in breakdown:
+            lbl = method_labels.get(b["method"], b["method"])
+            sign = "+" if b["profit"] >= 0 else ""
+            lines.append(f"  {lbl}: {b['count']} trades, {sign}{b['profit']:.2f} CHF")
+        return lines
 
-    def notify_period_summary(self, s, title, emoji):
+    def notify_daily_summary(self, s, breakdown=None):
+        profit = s.get('total_profit', 0)
+        sign = "+" if profit >= 0 else ""
+        lines = [f"<b>📆 Tagesrückblick</b>",
+                 f"Trades: {s['count']} | Profit: <b>{sign}{profit:.2f} CHF</b>"]
+        if breakdown:
+            lines += self._method_breakdown_lines(breakdown)
+        self._send("\n".join(lines))
+
+    def notify_period_summary(self, s, title, emoji, breakdown=None):
         profit = s.get('total_profit', 0)
         count = s.get('count', 0)
         sats = s.get('total_sats', 0)
         avg_prem = s.get('avg_premium', 0)
         sign = "+" if profit >= 0 else ""
-        self._send(
-            f"<b>{emoji} {title}</b>\n"
-            f"Trades: {count} | Volumen: {sats:,} sats\n"
-            f"Profit: <b>{sign}{profit:.2f} CHF</b>\n"
-            f"Ø Premium: {avg_prem:.1f}%")
-
-    def notify_weekly_summary(self, w, breakdown):
-        profit = w.get('total_profit', 0)
-        count = w.get('count', 0)
-        sats = w.get('total_sats', 0)
-        avg_prem = w.get('avg_premium', 0)
-        sign = "+" if profit >= 0 else ""
-        lines = [
-            f"<b>📊 Wochenrückblick</b>",
-            f"Trades: {count} | Volumen: {sats:,} sats",
-            f"Profit: <b>{sign}{profit:.2f} CHF</b>",
-            f"Ø Premium: {avg_prem:.1f}%",
-        ]
+        lines = [f"<b>{emoji} {title}</b>",
+                 f"Trades: {count} | Volumen: {sats:,} sats",
+                 f"Profit: <b>{sign}{profit:.2f} CHF</b>",
+                 f"Ø Premium: {avg_prem:.1f}%"]
         if breakdown:
             lines.append("")
-            for b in breakdown:
-                bp = b.get('profit', 0)
-                bsign = "+" if bp >= 0 else ""
-                lines.append(f"  {b['platform']}: {b['count']} trades, {bsign}{bp:.2f} CHF")
+            lines += self._method_breakdown_lines(breakdown)
         self._send("\n".join(lines))
+
+    def notify_weekly_summary(self, w, breakdown):
+        self.notify_period_summary(w, "Wochenrückblick", "📊", breakdown)
 
     def trigger_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
         bot = getattr(self, 'bot', None)
