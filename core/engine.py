@@ -443,10 +443,12 @@ class TradingEngine:
                         if fiat_balance >= amount * 0.98:
                             chosen = amount
                             break
+                    # Always advance index — even if no offer fits — so rotation
+                    # continues and the remainder slot is reachable when balance is low
+                    self._auto_buy_amount_index = (self._auto_buy_amount_index + 1) % len(all_slots)
                 if chosen:
                     log.info(f"auto_buy_escrow: triggering {ex.name} {chosen:.0f} {currency} (target {target}, balance: {fiat_balance:.2f})")
                     self.notifier.trigger_auto_buy_escrow(ex, float(chosen), exclude_methods)
-                    self._auto_buy_amount_index = (self._auto_buy_amount_index + 1) % len(all_slots)
             except Exception as e:
                 log.warning(f"auto_buy_escrow check {ex.name}: {e}")
 
