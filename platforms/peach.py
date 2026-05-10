@@ -1,6 +1,5 @@
 import hashlib, json, logging, time
 from collections import OrderedDict
-from typing import Optional
 import requests
 from platforms.base import PlatformBase
 from core.models import SellOffer, Match, Contract, OfferStatus, Platform

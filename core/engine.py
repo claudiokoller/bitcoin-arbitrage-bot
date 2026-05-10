@@ -1,8 +1,8 @@
 import json, logging, os, threading, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests as _requests
-from core.models import SellOffer, OfferStatus, Platform, Exchange, TradeResult
+from core.models import SellOffer, OfferStatus, Platform
 from core.trade_logger import TradeLogger
 from core.pricing import DynamicPricer
 from exchanges.base import ExchangeBase
@@ -194,9 +194,8 @@ class TradingEngine:
         self._cached_active_offers = {}  # {platform_name: [offers]} — reused by _auto_broadcast_refunds
     def reload_config(self, config_path=None):
         """Hot-reload config.json — updates engine config, exchanges, and platform credentials."""
-        import os as _os
         if config_path is None:
-            config_path = _os.path.join(_os.path.dirname(__file__), "..", "config.json")
+            config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
         with open(config_path) as f:
             new_cfg = json.load(f)
         self.config = new_cfg
@@ -369,7 +368,7 @@ class TradingEngine:
         self._last_weekly_summary = now
         if self.notifier:
             try:
-                since = (now - __import__('datetime').timedelta(days=7)).isoformat()
+                since = (now - timedelta(days=7)).isoformat()
                 w = self.trade_logger.get_since_summary(since, "Wochenrückblick")
                 b = self.trade_logger.get_method_breakdown(since)
                 self.notifier.notify_period_summary(w, "Wochenrückblick", "📊", b)
@@ -1120,7 +1119,6 @@ class TradingEngine:
         dt = datetime.fromisoformat(funded_at_str)
         if dt.tzinfo is not None:
             # Convert UTC to local naive datetime
-            import time as _time
             utc_ts = dt.timestamp()
             dt = datetime.fromtimestamp(utc_ts)
         return dt
