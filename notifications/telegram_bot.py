@@ -42,9 +42,6 @@ class TelegramNotifier:
             lines.append(f"  {lbl}: {b['count']} trades, {sign}{b['profit']:.2f} CHF")
         return lines
 
-    def notify_daily_summary(self, s, breakdown=None):
-        self.notify_period_summary(s, "Tagesrückblick", "📆", breakdown)
-
     def notify_period_summary(self, s, title, emoji, breakdown=None):
         profit = s.get('total_profit', 0)
         count = s.get('count', 0)
@@ -59,9 +56,6 @@ class TelegramNotifier:
             lines.append("")
             lines += self._method_breakdown_lines(breakdown)
         self._send("\n".join(lines))
-
-    def notify_weekly_summary(self, w, breakdown):
-        self.notify_period_summary(w, "Wochenrückblick", "📊", breakdown)
 
     def trigger_auto_buy_escrow(self, exchange, amount_fiat, exclude_methods=None):
         bot = getattr(self, 'bot', None)
@@ -287,11 +281,22 @@ class TelegramBot:
         await update.message.reply_text("<b>Laeuft</b>", parse_mode="HTML")
     async def cmd_profit(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if not self._auth(update) or not self.engine: return
-        d = self.engine.trade_logger.get_daily_summary()
-        m = self.engine.trade_logger.get_period_summary(30)
-        b = self.engine.trade_logger.get_platform_breakdown(30)
-        bl = "".join(f"  {x['platform']}: {x['count']} trades, {x['profit']:.2f} CHF\n" for x in b)
-        text = f"<b>Profit</b>\nHeute: {d['count']} | {d['total_profit']:.2f} CHF\n30d: {m['count']} | {m['total_profit']:.2f} CHF\n\n<b>Plattformen</b>\n{bl}"
+        from datetime import datetime
+        now = datetime.now()
+        since_today = datetime(now.year, now.month, now.day).isoformat()
+        since_month = datetime(now.year, now.month, 1).isoformat()
+        since_year = datetime(now.year, 1, 1).isoformat()
+        tl = self.engine.trade_logger
+        d = tl.get_since_summary(since_today)
+        m = tl.get_since_summary(since_month)
+        y = tl.get_since_summary(since_year)
+        def fmt(s):
+            p = s['total_profit']; sign = "+" if p >= 0 else ""
+            return f"{s['count']} trades | {sign}{p:.2f} CHF"
+        text = (f"<b>Profit</b>\n"
+                f"Heute: {fmt(d)}\n"
+                f"Monat: {fmt(m)}\n"
+                f"Jahr:  {fmt(y)}")
         await update.message.reply_text(text, parse_mode="HTML")
     # Store last market snapshot for trend comparison
     _last_market_snapshot = None

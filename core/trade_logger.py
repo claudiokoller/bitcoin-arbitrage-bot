@@ -1,5 +1,5 @@
 import sqlite3, logging, threading
-from datetime import datetime, timedelta
+from datetime import datetime
 log = logging.getLogger("bot.db")
 
 class TradeLogger:
@@ -88,22 +88,6 @@ class TradeLogger:
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             return [dict(r) for r in conn.execute("SELECT * FROM trades ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
-    def get_daily_summary(self, platform=None):
-        today = datetime.now().strftime("%Y-%m-%d")
-        where = "WHERE timestamp LIKE ? AND status='completed'"
-        params = [f"{today}%"]
-        if platform: where += " AND platform=?"; params.append(platform)
-        with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute(f"SELECT COUNT(*),COALESCE(SUM(amount_sats),0),COALESCE(SUM(sell_price),0),COALESCE(SUM(net_profit),0),COALESCE(AVG(premium_pct),0) FROM trades {where}", params).fetchone()
-            return {"count":row[0],"total_sats":row[1],"total_revenue":row[2],"total_profit":row[3],"avg_premium":row[4]}
-    def get_period_summary(self, days=30, platform=None):
-        since = (datetime.now() - timedelta(days=days)).isoformat()
-        where = "WHERE timestamp >= ? AND status='completed'"
-        params = [since]
-        if platform: where += " AND platform=?"; params.append(platform)
-        with sqlite3.connect(self.db_path) as conn:
-            row = conn.execute(f"SELECT COUNT(*),COALESCE(SUM(amount_sats),0),COALESCE(SUM(sell_price),0),COALESCE(SUM(net_profit),0),COALESCE(AVG(premium_pct),0) FROM trades {where}", params).fetchone()
-            return {"count":row[0],"total_sats":row[1],"total_revenue":row[2],"total_profit":row[3],"avg_premium":row[4],"days":days}
     def get_since_summary(self, since_iso: str, label: str = ""):
         """Summary from a specific ISO date string until now."""
         where = "WHERE timestamp >= ? AND status='completed'"
@@ -121,8 +105,3 @@ class TradeLogger:
                 (since_iso,)).fetchall()
             return [{"method": r[0] or "-", "count": r[1], "profit": r[2]} for r in rows if r[1] > 0]
 
-    def get_platform_breakdown(self, days=30):
-        since = (datetime.now() - timedelta(days=days)).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            rows = conn.execute("SELECT platform,COUNT(*),COALESCE(SUM(net_profit),0),COALESCE(AVG(premium_pct),0) FROM trades WHERE timestamp >= ? AND status='completed' GROUP BY platform", (since,)).fetchall()
-            return [{"platform":r[0],"count":r[1],"profit":r[2],"avg_premium":r[3]} for r in rows]
