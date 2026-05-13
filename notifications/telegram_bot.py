@@ -22,8 +22,19 @@ class TelegramNotifier:
         self._send(f"<b>Offer</b>\n<code>{oid[:16]}</code> | {prem}% | {rng[0]:,}-{rng[1]:,} sats")
     def notify_escrow_funded(self, oid, btc, fiat, currency="CHF"):
         self._send(f"<b>Escrow funded</b>\n<code>{oid[:16]}</code> | {btc:.8f} BTC ({fiat:.2f} {currency})")
-    def notify_match(self, oid, mid):
-        self._send(f"<b>MATCH!</b>\n<code>{oid[:16]}</code>")
+    def notify_match(self, oid, mid, method="", currency="", amount_sats=0, premium=0, sepa_bank=""):
+        method_labels = {"twint":"Twint","revolut":"Revolut","wise":"Wise","sepa":"SEPA",
+                         "instantSepa":"SEPA Instant","skrill":"Skrill","n26":"N26",
+                         "paysera":"Paysera","solanausdt":"USDT (SOL)","arbitrumusdt":"USDT (ARB)",
+                         "ethereumusdt":"USDT (ETH)"}
+        lbl = method_labels.get(method, method)
+        if method in ("sepa", "instantSepa") and sepa_bank:
+            lbl = f"{lbl} ({sepa_bank})"
+        lines = [f"<b>🤝 Match!</b>  <code>{oid[:16]}</code>"]
+        if lbl: lines.append(f"Methode: {lbl}" + (f" · {currency}" if currency else ""))
+        if amount_sats: lines.append(f"Betrag: {amount_sats:,} sats")
+        if premium: lines.append(f"Premium: {premium:.1f}%")
+        self._send("\n".join(lines))
     def notify_dispute(self, cid):
         self._send(f"<b>DISPUTE!</b> <code>{cid[:16]}</code>")
     def notify_error(self, err):

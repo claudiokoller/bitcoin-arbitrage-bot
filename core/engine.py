@@ -954,7 +954,26 @@ class TradingEngine:
                         platform.accept_trade_request(oid, buyer_id, method, raw_data, trade_request_data=tr, payment_info=method_info)
                         log.info(f"{name}: ACCEPTED trade request from {buyer_id[:12]} via {method}")
                         if self.notifier:
-                            self.notifier.notify_match(oid, buyer_id)
+                            with self._escrow_lock:
+                                esc_info = self.pending_escrows.get(oid, {})
+                            sepa_bank = ""
+                            if method in ("sepa", "instantSepa"):
+                                sepa_accounts = pconfig.get("sepa_accounts", [])
+                                sepa_idx = esc_info.get("sepa_account_index", 0)
+                                if method == "instantSepa" and sepa_idx < len(sepa_accounts):
+                                    acct = sepa_accounts[sepa_idx]
+                                    if not acct.get("instant", True):
+                                        fb = acct.get("instant_fallback")
+                                        acct = next((a for a in sepa_accounts if fb and a.get("name") == fb), acct)
+                                    sepa_bank = acct.get("name", "")
+                                elif sepa_idx < len(sepa_accounts):
+                                    sepa_bank = sepa_accounts[sepa_idx].get("name", "")
+                            self.notifier.notify_match(
+                                oid, buyer_id,
+                                method=method, currency=currency,
+                                amount_sats=esc_info.get("amount_sats", 0),
+                                premium=esc_info.get("premium", 0),
+                                sepa_bank=sepa_bank)
                         self.trade_logger.log_event(name, "match_accepted", f"{oid}:{buyer_id}")
                         accepted = True
                         break
