@@ -968,10 +968,22 @@ class TradingEngine:
                                     sepa_bank = acct.get("name", "")
                                 elif sepa_idx < len(sepa_accounts):
                                     sepa_bank = sepa_accounts[sepa_idx].get("name", "")
+                            amount_sats = tr.get("amount", esc_info.get("amount_sats", 0))
+                            fiat_amount = 0
+                            try:
+                                cur = currency.upper()
+                                spot = (SpotPriceProvider.get_spot_chf() if cur == "CHF"
+                                        else SpotPriceProvider.get_spot_eur() if cur == "EUR"
+                                        else SpotPriceProvider.get_spot_usd() if cur == "USD"
+                                        else SpotPriceProvider.get_spot_eur())
+                                fiat_amount = round(amount_sats / 1e8 * spot * (1 + esc_info.get("premium", 0) / 100), 2)
+                            except Exception:
+                                pass
                             self.notifier.notify_match(
                                 oid, buyer_id,
                                 method=method, currency=currency,
-                                amount_sats=tr.get("amount", esc_info.get("amount_sats", 0)),
+                                amount_sats=amount_sats,
+                                fiat_amount=fiat_amount,
                                 premium=esc_info.get("premium", 0),
                                 sepa_bank=sepa_bank)
                         self.trade_logger.log_event(name, "match_accepted", f"{oid}:{buyer_id}")
