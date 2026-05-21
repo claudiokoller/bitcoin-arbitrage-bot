@@ -971,7 +971,7 @@ class TradingEngine:
                             self.notifier.notify_match(
                                 oid, buyer_id,
                                 method=method, currency=currency,
-                                amount_sats=esc_info.get("amount_sats", 0),
+                                amount_sats=tr.get("amount", esc_info.get("amount_sats", 0)),
                                 premium=esc_info.get("premium", 0),
                                 sepa_bank=sepa_bank)
                         self.trade_logger.log_event(name, "match_accepted", f"{oid}:{buyer_id}")
