@@ -253,6 +253,15 @@ class TradingEngine:
         self._save_escrow_state()
         self._last_offer_created_at = time.time()
         self.trade_logger.log_event("peach", "offer_created", offer_id)
+    def save_buy_data(self, offer_id, buy_data: dict):
+        """Persist buy_data to escrow_state so it survives bot restarts."""
+        with self._escrow_lock:
+            if offer_id in self.pending_escrows:
+                self.pending_escrows[offer_id]["buy_data"] = buy_data
+        state = self._escrow_state.setdefault(str(offer_id), {})
+        state["buy_data"] = buy_data
+        self._save_escrow_state()
+
     def get_best_exchange(self):
         best = None
         best_price = float("inf")
@@ -826,7 +835,7 @@ class TradingEngine:
                             self._contracted_offers.discard(offer.id)
                             self._save_contracted_offers()
                             log.info(f"{name}: re-activated contracted offer {offer.id} (still FUNDED)")
-                        self.pending_escrows[offer.id] = {"platform": name, "escrow_address": escrow_addr, "amount_sats": amount, "funded": True, "funded_at": funded_at, "premium": saved.get("premium", offer.premium_pct), "sepa_account_index": saved.get("sepa_account_index", 0)}
+                        self.pending_escrows[offer.id] = {"platform": name, "escrow_address": escrow_addr, "amount_sats": amount, "funded": True, "funded_at": funded_at, "premium": saved.get("premium", offer.premium_pct), "sepa_account_index": saved.get("sepa_account_index", 0), "buy_data": saved.get("buy_data", {})}
                         log.info(f"{name}: synced funded offer {offer.id} into pending_escrows")
                     except Exception as e:
                         log.debug(f"{name}: escrow status {offer.id[:12]}: {e}")

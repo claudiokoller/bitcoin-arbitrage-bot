@@ -887,12 +887,10 @@ class TelegramBot:
             else:
                 buy = exchange.buy_btc_market(amount_fiat)
                 spot_at_buy = buy.effective_price or (buy.fiat_spent / buy.btc_amount if buy.btc_amount else 0)
-                with self.engine._escrow_lock:
-                    if offer.id in self.engine.pending_escrows:
-                        self.engine.pending_escrows[offer.id]["buy_data"] = {
-                            "fiat_spent": buy.fiat_spent, "exchange_fee": buy.fee_fiat,
-                            "spot_at_buy": spot_at_buy, "btc_amount": buy.btc_amount,
-                            "buy_currency": currency}
+                self.engine.save_buy_data(offer.id, {
+                    "fiat_spent": buy.fiat_spent, "exchange_fee": buy.fee_fiat,
+                    "spot_at_buy": spot_at_buy, "btc_amount": buy.btc_amount,
+                    "buy_currency": currency})
                 actual_balance = exchange.get_btc_balance()
                 withdraw_amount = min(buy.btc_amount, actual_balance)
                 withdrawal = exchange.withdraw_btc("", withdraw_amount)
@@ -1174,15 +1172,10 @@ class TelegramBot:
                 spot_at_buy = buy.effective_price if buy.effective_price else (buy.fiat_spent / buy.btc_amount if buy.btc_amount else 0)
 
                 # Store actual buy data for accurate profit calculation later
-                with self.engine._escrow_lock:
-                    if offer.id in self.engine.pending_escrows:
-                        self.engine.pending_escrows[offer.id]["buy_data"] = {
-                            "fiat_spent": buy.fiat_spent,
-                            "exchange_fee": buy.fee_fiat,
-                            "spot_at_buy": spot_at_buy,
-                            "btc_amount": buy.btc_amount,
-                            "buy_currency": currency,
-                        }
+                self.engine.save_buy_data(offer.id, {
+                    "fiat_spent": buy.fiat_spent, "exchange_fee": buy.fee_fiat,
+                    "spot_at_buy": spot_at_buy, "btc_amount": buy.btc_amount,
+                    "buy_currency": currency})
 
                 # Withdraw to hot wallet, then fund escrow automatically
                 actual_balance = await loop.run_in_executor(None, exchange.get_btc_balance)
