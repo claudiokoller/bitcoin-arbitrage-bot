@@ -1293,31 +1293,44 @@ class TradingEngine:
         spot_for_fees = spot_at_buy if spot_at_buy else (spot_chf or spot_now)
         withdrawal_fee = KRAKEN_WITHDRAWAL_FEE_BTC * spot_for_fees if spot_for_fees else 0
 
-        # Convert sell_price to CHF for unified accounting
-        if currency == "CHF":
-            sell_price_chf = sell_price
-        else:
-            # Convert via BTC: sell_price / spot_sell * spot_chf
-            if spot_now and spot_chf:
-                sell_price_chf = sell_price / spot_now * spot_chf
-            else:
-                sell_price_chf = sell_price  # fallback: no conversion possible
+        # Convert buy_price to CHF (base accounting currency).
+        # Profit model: buy and sell at same BTC spot; buyer pays buy_price × (1+premium%).
+        # For cross-currency trades, convert buy_price to CHF via current FX rate.
+        def _fx_to_chf(currency_code):
+            """Get current CHF conversion rate for a fiat currency."""
+            if currency_code == "CHF": return 1.0
+            try:
+                pair = f"{currency_code}CHF" if currency_code != "USD" else "USDCHF"
+                r = _requests.get("https://api.kraken.com/0/public/Ticker",
+                                   params={"pair": pair}, timeout=5)
+                return float(list(r.json()["result"].values())[0]["c"][0])
+            except Exception:
+                return {"EUR": 0.94, "USD": 0.90, "USDT": 0.90}.get(currency_code, 1.0)
 
-        # Convert buy_price to CHF if needed
         if buy_currency == "CHF":
             buy_price_chf = buy_price
             efee_chf = efee
         else:
-            if spot_now and spot_chf:
-                rate = spot_chf / SpotPriceProvider.get_spot(buy_currency) if buy_currency != "CHF" else 1
-                buy_price_chf = buy_price * rate
-                efee_chf = efee * rate
-            else:
-                buy_price_chf = buy_price
-                efee_chf = efee
+            rate = _fx_to_chf(buy_currency)
+            buy_price_chf = buy_price * rate
+            efee_chf = efee * rate
 
-        # Net profit in CHF
-        net = sell_price_chf - buy_price_chf - efee_chf - withdrawal_fee - funding_fee
+        # Get premium from pending_escrows (stored at offer creation)
+        oid = offer_id or (contract.id.split('-')[0] if '-' in contract.id else contract.id)
+        with self._escrow_lock:
+            pesc = self.pending_escrows.get(oid, {})
+        prem = pesc.get("premium") or self._escrow_state.get(str(oid), {}).get("premium") or 0
+        if not prem:
+            # Fallback: derive from actual prices and spot at buy
+            prem = (sell_price / (btc * spot_at_buy) - 1) * 100 if (btc and spot_at_buy) else 0
+
+        # sell_price_chf = buy_price_chf × (1 + premium%)
+        # Kauf und Verkauf laufen zum gleichen Spot-Preis; Käufer zahlt nur Premium mehr.
+        sell_price_chf = buy_price_chf * (1 + prem / 100)
+        fees_chf = efee_chf + withdrawal_fee + funding_fee
+
+        # Net profit = what premium earns minus all fees (in CHF)
+        net = buy_price_chf * (prem / 100) - fees_chf
 
         self.trade_logger.log_trade(
             platform=pname,
@@ -1326,14 +1339,14 @@ class TradingEngine:
             buy_price=buy_price, sell_price=sell_price,
             currency=currency, buy_currency=buy_currency,
             sell_price_chf=round(sell_price_chf, 2),
-            premium_pct=((sell_price / (btc * spot_now) - 1) * 100) if (btc * spot_now) > 0 else 0,
-            exchange_fee=efee, platform_fee=pfee,
+            premium_pct=prem,
+            exchange_fee=efee, platform_fee=0,
             network_fee=withdrawal_fee + funding_fee,
-            net_profit=net, payment_method=contract.payment_method,
+            net_profit=round(net, 5), payment_method=contract.payment_method,
             withdrawal_fee=withdrawal_fee, funding_fee=funding_fee,
             spot_at_buy=spot_at_buy, spot_at_sell=spot_now)
         self.daily_volume_sats += contract.amount_sats
-        log.info(f"{pname}: COMPLETE {contract.id[:12]} profit={net:.2f} {currency} (buy={buy_price:.2f} sell={sell_price:.2f} fees={efee+pfee+withdrawal_fee+funding_fee:.2f})")
+        log.info(f"{pname}: COMPLETE {contract.id[:12]} profit={net:.2f} CHF (buy={buy_price:.2f} {buy_currency} prem={prem:.1f}% fees={fees_chf:.2f})")
     def get_status(self):
         uptime = datetime.now() - self._start_time
         h, m = divmod(int(uptime.total_seconds()) // 60, 60)
