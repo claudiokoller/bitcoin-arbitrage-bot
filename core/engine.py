@@ -1249,13 +1249,26 @@ class TradingEngine:
         KRAKEN_WITHDRAWAL_FEE_BTC = 0.000015
 
         if buy_data.get("fiat_spent"):
-            # Use actual buy price from Kraken
-            buy_price = buy_data["fiat_spent"]
-            efee = buy_data.get("exchange_fee", 0)
             spot_at_buy = buy_data.get("spot_at_buy", 0)
             buy_currency = buy_data.get("buy_currency", currency)
             funding_fee_sats = buy_data.get("funding_fee_sats", 0)
             funding_fee = funding_fee_sats / 1e8 * spot_now if spot_now else 0
+            # Use proportional buy price: buyer may match fewer sats than full offer.
+            # Charge only the cost of the sats actually traded, not the full Kraken buy.
+            if spot_at_buy and spot_at_buy > 0:
+                # Effective buy cost = sats_traded * spot_at_buy (in buy_currency)
+                total_sats_bought = buy_data.get("btc_amount", 0) * 1e8 if buy_data.get("btc_amount") else 0
+                if total_sats_bought > 0 and contract.amount_sats < total_sats_bought * 0.99:
+                    # Partial fill: prorate buy_price and fee
+                    fill_ratio = contract.amount_sats / total_sats_bought
+                    buy_price = buy_data["fiat_spent"] * fill_ratio
+                    efee = buy_data.get("exchange_fee", 0) * fill_ratio
+                else:
+                    buy_price = buy_data["fiat_spent"]
+                    efee = buy_data.get("exchange_fee", 0)
+            else:
+                buy_price = buy_data["fiat_spent"]
+                efee = buy_data.get("exchange_fee", 0)
         else:
             # Fallback: estimate from current spot (old trades without buy_data)
             # Determine actual exchange buy currency (may differ from sell currency)
