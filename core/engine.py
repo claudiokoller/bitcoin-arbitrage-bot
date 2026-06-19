@@ -451,16 +451,20 @@ class TradingEngine:
         self._last_auto_buy_check = now
         if self.paused or not self.notifier:
             return
-        # Don't trigger new buys while an escrow is waiting to be funded — prevents
-        # concurrent withdrawals competing for the same UTXOs (would leave one underfunded).
+        # Cap how many offers may be awaiting funding at once. The reservation accounting
+        # (get_reserved_sats / _offer_intents) prevents concurrent fundings from competing for
+        # the same UTXOs, so >1 in flight is safe and lets large balances deploy in parallel.
+        # Default 1 keeps the old strict one-at-a-time behaviour for safety.
+        max_concurrent = cfg.get("max_concurrent_offers", 1)
         with self._escrow_lock:
             unfunded = [oid for oid, info in self.pending_escrows.items() if not info.get("funded")]
-        if unfunded:
-            log.info(f"auto_buy_escrow: skipping — {len(unfunded)} offer(s) still awaiting funding")
+        if len(unfunded) >= max_concurrent:
+            log.info(f"auto_buy_escrow: skipping — {len(unfunded)}/{max_concurrent} offer(s) awaiting funding")
             return
-        # Also block if an offer was created recently — prevents rapid re-trigger when a
-        # Kraken withdrawal arrives quickly and sets funded=True within the same interval.
-        min_since_creation = max(interval, 1800)  # at least 30 min between offer creations
+        # Minimum spacing between offer creations. The buy itself completes in seconds, so this
+        # spacing also lets the EUR balance refresh before the next offer is sized (no over-commit).
+        # Default 1800s (30 min) keeps the old cadence; lower it to deploy capital faster.
+        min_since_creation = cfg.get("min_offer_interval_sec", 1800)
         since_last = now - self._last_offer_created_at
         if self._last_offer_created_at and since_last < min_since_creation:
             log.info(f"auto_buy_escrow: skipping — last offer created {int(since_last)}s ago (min {min_since_creation}s)")

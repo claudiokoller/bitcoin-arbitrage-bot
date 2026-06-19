@@ -1576,13 +1576,14 @@ class TelegramBot:
         mode = cfg.get("mode", "norev")
         status = "✅ Aktiv" if enabled else "⏸ Inaktiv"
         mode_label = "Ohne Revolut" if mode == "norev" else "Mit Revolut"
-        check_interval = cfg.get("check_interval_sec", 600)
-        effective_interval = max(check_interval, 1800) // 60
+        spacing = cfg.get("min_offer_interval_sec", 1800)
+        spacing_txt = f"{spacing}s" if spacing < 120 else f"{spacing // 60}min"
+        max_concurrent = cfg.get("max_concurrent_offers", 1)
         premium = cfg.get("premium", 5.5)
         text = (f"<b>Auto Buy-Escrow</b>\n"
                 f"Status: {status}\n"
                 f"Modus: {mode_label}\n"
-                f"Premium: {premium}% | Interval: {effective_interval}min")
+                f"Premium: {premium}% | Takt: {spacing_txt} | parallel: {max_concurrent}")
         norev_mark = " ✓" if mode == "norev" else ""
         withrev_mark = " ✓" if mode == "withrev" else ""
         toggle_label = "⏸ Deaktivieren" if enabled else "▶️ Aktivieren"
