@@ -453,12 +453,13 @@ class TradingEngine:
             return
         # Cap how many offers may be awaiting funding at once. The reservation accounting
         # (get_reserved_sats / _offer_intents) prevents concurrent fundings from competing for
-        # the same UTXOs, so >1 in flight is safe and lets large balances deploy in parallel.
+        # the same UTXOs, so multiple in flight is safe. 0 (or negative) = no limit: the EUR
+        # balance is then the only cap (offers only get created while funds remain).
         # Default 1 keeps the old strict one-at-a-time behaviour for safety.
         max_concurrent = cfg.get("max_concurrent_offers", 1)
         with self._escrow_lock:
             unfunded = [oid for oid, info in self.pending_escrows.items() if not info.get("funded")]
-        if len(unfunded) >= max_concurrent:
+        if max_concurrent > 0 and len(unfunded) >= max_concurrent:
             log.info(f"auto_buy_escrow: skipping — {len(unfunded)}/{max_concurrent} offer(s) awaiting funding")
             return
         # Minimum spacing between offer creations. The buy itself completes in seconds, so this
