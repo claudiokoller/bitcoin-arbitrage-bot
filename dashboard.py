@@ -486,12 +486,17 @@ def api_premium_history():
     """Get premium history for charts"""
     db = get_db()
     if not db: return jsonify([])
+    try:
+        days = int(request.args.get("days", 90))
+    except (TypeError, ValueError):
+        days = 90
+    days = max(1, min(days, 365))  # clamp to a sane range
     rows = db.execute("""
         SELECT timestamp, currency, num_offers, lowest, median, avg, highest
         FROM premium_history
-        WHERE timestamp > datetime('now', '-30 days')
+        WHERE timestamp > datetime('now', ?)
         ORDER BY timestamp
-    """).fetchall()
+    """, (f"-{days} days",)).fetchall()
     db.close()
     return jsonify([dict(r) for r in rows])
 
@@ -1185,7 +1190,12 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <!-- TAB: Market -->
     <div id="tab-market" class="tab-content">
         <div class="sec">
-            <div class="s-hd"><span>&#x1f4c8; Premium Verlauf (30d)</span><span class="s-badge" id="premHistCount">--</span></div>
+            <div class="s-hd"><span>&#x1f4c8; Premium Verlauf</span><span class="s-badge" id="premHistCount">--</span></div>
+            <div class="chart-range">
+                <label>Zeitraum:</label>
+                <input type="range" id="premRange" min="7" max="90" value="30" oninput="updatePremiumRange(this.value)">
+                <span id="premRangeLabel">30d</span>
+            </div>
             <div style="height:200px"><canvas id="premiumChart" height="200"></canvas></div>
         </div>
         <div class="sec">
@@ -1754,9 +1764,20 @@ async function saveConfig(){
 }
 
 // ── Premium History Chart ──
-let premiumChart=null;
+let premiumChart=null,allPremiumData=[];
 async function loadPremiumHistory(){
-    try{const r=await fetch('/api/premium-history');const data=await r.json();
+    try{const r=await fetch('/api/premium-history?days=90');allPremiumData=await r.json();
+    updatePremiumRange(document.getElementById('premRange').value);
+    }catch(e){console.error('Premium history:',e)}
+}
+function updatePremiumRange(days){
+    days=parseInt(days);
+    document.getElementById('premRangeLabel').textContent=days+'d';
+    // Filter the loaded 90d window to the last N days (client-side, like the daily profit slider).
+    const cutoff=new Date(Date.now()-days*86400000).toISOString().substring(0,10);
+    renderPremiumChart(allPremiumData.filter(d=>d.timestamp.substring(0,10)>=cutoff));
+}
+function renderPremiumChart(data){
     document.getElementById('premHistCount').textContent=data.length+' Datenpunkte';
     if(!data.length){
         const ctx=document.getElementById('premiumChart').getContext('2d');
@@ -1778,7 +1799,6 @@ async function loadPremiumHistory(){
     premiumChart=new Chart(ctx,{type:'line',data:{labels:labelArr,datasets},
     options:{...cDef,plugins:{...cDef.plugins,legend:{display:true,labels:{color:'#8892a8',font:{family:'JetBrains Mono',size:10},boxWidth:12,padding:8}}},
     scales:{...cDef.scales,y:{...cDef.scales.y,ticks:{...cDef.scales.y.ticks,callback:v=>v.toFixed(1)+'%'}}}}});
-    }catch(e){console.error('Premium history:',e)}
 }
 </script>
 </body></html>
