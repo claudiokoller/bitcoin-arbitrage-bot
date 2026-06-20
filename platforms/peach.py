@@ -94,18 +94,34 @@ class PeachPlatform(PlatformBase):
                     self.authenticate()
 
     def _api_call(self, method, url, **kwargs):
-        """Make API call with automatic 401 retry and 5xx backoff."""
+        """Make API call with automatic 401 retry, 5xx backoff, and transient
+        network-error (Timeout/ConnectionError) retry so a short network blip doesn't
+        fail a whole poll cycle. _api_call is used for idempotent GETs (+ cancel), so
+        retrying these is safe."""
         self._ensure_auth()
         kwargs.setdefault("timeout", 15)
-        r = self.session.request(method, url, **kwargs)
+        def _do():
+            last = None
+            for attempt in range(3):
+                try:
+                    return self.session.request(method, url, **kwargs)
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                    last = e
+                    if attempt < 2:
+                        log.info(f"Peach: {method} {url} network error ({type(e).__name__}), retry {attempt+1}/2")
+                        time.sleep(1.5 * (attempt + 1))
+                        continue
+                    raise
+            raise last
+        r = _do()
         if r.status_code == 401:
             log.info("Peach: 401, re-authenticating...")
             self.authenticate()
-            r = self.session.request(method, url, **kwargs)
+            r = _do()
         if r.status_code >= 500:
             # Retry once after short delay on server errors
             time.sleep(2)
-            r = self.session.request(method, url, **kwargs)
+            r = _do()
         if r.status_code >= 400:
             log.warning(f"Peach: {method} {url} -> {r.status_code}: {r.text[:500]}")
         r.raise_for_status()
