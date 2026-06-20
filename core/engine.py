@@ -485,7 +485,9 @@ class TradingEngine:
                 chosen = None
                 if target == "remainder":
                     min_standard = numeric_amounts[0] if numeric_amounts else 200
-                    if remainder_min <= fiat_balance < min_standard * 0.98:
+                    # remainder deploys leftover balance from remainder_min up to just below
+                    # the smallest standard amount (e.g. 150–249 € when min standard is 250).
+                    if remainder_min <= fiat_balance < min_standard:
                         chosen = fiat_balance * 0.98
                     else:
                         # Balance too high (normal slots handle it) or too low → skip but advance
