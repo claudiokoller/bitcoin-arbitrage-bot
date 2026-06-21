@@ -1,4 +1,4 @@
-import asyncio, json, logging, os, threading
+import asyncio, json, logging, os, threading, time
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -912,7 +912,16 @@ class TelegramBot:
                 daemon=True, name=f"fund-{offer.id[:8]}").start()
         except Exception as e:
             log.exception(f"auto_buy_escrow: {e}")
-            self.notifier._send(f"❌ <b>Auto Buy-Escrow Fehler</b> ({currency})\n{str(e)[:300]}")
+            # Throttle repeated identical errors so a recurring failure doesn't spam Telegram
+            # every cycle. Send at most once per 30 min per distinct error signature.
+            sig = str(e)[:120]
+            if not hasattr(self, "_buy_error_throttle"):
+                self._buy_error_throttle = {}
+            if time.time() - self._buy_error_throttle.get(sig, 0) > 1800:
+                self._buy_error_throttle[sig] = time.time()
+                self.notifier._send(f"❌ <b>Auto Buy-Escrow Fehler</b> ({currency})\n{str(e)[:300]}")
+            else:
+                log.info(f"auto_buy_escrow: repeat error notification throttled: {sig[:60]}")
             # If offer was added to pending_escrows before the exception (e.g. Kraken buy failed),
             # remove it — no poll thread was started, so it would be stuck forever otherwise.
             if _registered_offer_id:

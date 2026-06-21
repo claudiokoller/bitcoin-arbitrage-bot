@@ -494,9 +494,12 @@ class TradingEngine:
                         self._auto_buy_amount_index = (self._auto_buy_amount_index + 1) % len(all_slots)
                         continue
                 else:
-                    # Try target first, fall back to smaller standard amounts
+                    # Try target first, fall back to smaller standard amounts.
+                    # Require the FULL amount: the buy spends exactly `amount` EUR via
+                    # quoteOrderQty, so a ×0.98 tolerance here made the bot fire e.g. a 275€
+                    # buy at 272€ balance → Binance -2010 "insufficient balance" every cycle.
                     for amount in sorted([a for a in numeric_amounts if a <= target], reverse=True):
-                        if fiat_balance >= amount * 0.98:
+                        if fiat_balance >= amount:
                             chosen = amount
                             break
                     # Always advance index — even if no offer fits — so rotation
