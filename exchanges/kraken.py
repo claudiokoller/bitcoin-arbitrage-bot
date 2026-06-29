@@ -56,8 +56,6 @@ class KrakenExchange(ExchangeBase):
         pair = self.trading_pair.upper()
         if "CHF" in pair:
             val = float(b.get("ZCHF", b.get("CHF", "0")))
-        elif pair.endswith("USDT"):
-            val = float(b.get("USDT", "0"))
         elif "USD" in pair:
             val = float(b.get("ZUSD", b.get("USD", "0")))
         else:
@@ -68,7 +66,6 @@ class KrakenExchange(ExchangeBase):
     def get_fiat_currency(self):
         pair = self.trading_pair.upper()
         if "CHF" in pair: return "CHF"
-        elif pair.endswith("USDT"): return "USDT"
         elif "USD" in pair: return "USD"
         else: return "EUR"
     def get_btc_balance(self, cached=False):

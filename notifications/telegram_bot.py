@@ -25,8 +25,7 @@ class TelegramNotifier:
     def notify_match(self, oid, mid, method="", currency="", amount_sats=0, fiat_amount=0, premium=0, sepa_bank=""):
         method_labels = {"twint":"Twint","revolut":"Revolut","wise":"Wise","sepa":"SEPA",
                          "instantSepa":"SEPA Instant","skrill":"Skrill","n26":"N26",
-                         "paysera":"Paysera","solanausdt":"USDT (SOL)","arbitrumusdt":"USDT (ARB)",
-                         "ethereumusdt":"USDT (ETH)"}
+                         "paysera":"Paysera"}
         lbl = method_labels.get(method, method)
         if method in ("sepa", "instantSepa") and sepa_bank:
             lbl = f"{lbl} ({sepa_bank})"
@@ -49,8 +48,7 @@ class TelegramNotifier:
         lines = []
         method_labels = {"twint":"Twint","revolut":"Revolut","wise":"Wise","sepa":"SEPA",
                          "instantSepa":"SEPA Instant","skrill":"Skrill","n26":"N26",
-                         "paysera":"Paysera","solanausdt":"USDT (SOL)","arbitrumusdt":"USDT (ARB)",
-                         "ethereumusdt":"USDT (ETH)"}
+                         "paysera":"Paysera"}
         for b in breakdown:
             lbl = method_labels.get(b["method"], b["method"])
             sign = "+" if b["profit"] >= 0 else ""
@@ -212,7 +210,7 @@ class TelegramBot:
             if es.get("online"):
                 cur = es.get('currency', 'CHF')
                 bal = es.get('fiat_balance', 0)
-                fmt = f"{bal:,.2f}" if cur in ("USDT", "USD") else f"{bal:,.0f}"
+                fmt = f"{bal:,.2f}" if cur == "USD" else f"{bal:,.0f}"
                 elines.append(f"  {n}: {fmt} {cur}")
             else:
                 elines.append(f"  {n}: offline")
@@ -469,10 +467,7 @@ class TelegramBot:
                             "sepa": "SEPA", "instantSepa": "Instant SEPA",
                             "skrill": "Skrill",
                             "n26": "N26",
-                            "paysera": "Paysera",
-                            "solanausdt": "USDT (Solana)",
-                            "arbitrumusdt": "USDT (Arbitrum)",
-                            "ethereumusdt": "USDT (Ethereum)"}
+                            "paysera": "Paysera"}
             mlines = []
             all_methods = sorted(my_method_set,
                                 key=lambda m: method_counts_buy.get(m, 0), reverse=True)

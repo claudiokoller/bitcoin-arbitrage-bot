@@ -891,9 +891,6 @@ class TradingEngine:
             "skrill": raw.get("skrill", ""),
             "n26": raw.get("n26", ""),
             "paysera": raw.get("paysera", ""),
-            "solanausdt": raw.get("solanausdt", ""),
-            "arbitrumusdt": raw.get("arbitrumusdt", ""),
-            "ethereumusdt": raw.get("ethereumusdt", ""),
         }
         # Structured payment info for encryption (what the buyer sees)
         beneficiary = info.get("beneficiary", "")
@@ -906,9 +903,6 @@ class TradingEngine:
             "skrill": info.get("skrill", {"email": raw.get("skrill", "")}),
             "n26": info.get("n26", {"phone": raw.get("n26", "")}),
             "paysera": info.get("paysera", {"phone": raw.get("paysera", "")}),
-            "solanausdt": info.get("solanausdt", {"address": raw.get("solanausdt", "")}),
-            "arbitrumusdt": info.get("arbitrumusdt", {"address": raw.get("arbitrumusdt", "")}),
-            "ethereumusdt": info.get("ethereumusdt", {"address": raw.get("ethereumusdt", "")}),
         }
 
         sepa_accounts = pconfig.get("sepa_accounts", [])
@@ -1315,7 +1309,7 @@ class TradingEngine:
                                    params={"pair": pair}, timeout=5)
                 return float(list(r.json()["result"].values())[0]["c"][0])
             except Exception:
-                return {"EUR": 0.94, "USD": 0.90, "USDT": 0.90}.get(currency_code, 1.0)
+                return {"EUR": 0.94, "USD": 0.90}.get(currency_code, 1.0)
 
         if buy_currency == "CHF":
             buy_price_chf = buy_price

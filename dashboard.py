@@ -1080,7 +1080,6 @@ tr:hover td{background:rgba(255,255,255,.02)}
     <div class="m" style="border-left-color:#f59e0b"><div class="m-row"><span class="m-lbl">CHF</span><span class="m-icon">&#x1f1e8;&#x1f1ed;</span></div><div class="m-val" id="chfBal">--</div></div>
     <div class="m blue"><div class="m-row"><span class="m-lbl">EUR</span><span class="m-icon">&#x1f1ea;&#x1f1fa;</span></div><div class="m-val" id="eurBal">--</div></div>
     <div class="m" style="border-left-color:#22c55e"><div class="m-row"><span class="m-lbl">USD</span><span class="m-icon">&#x1f1fa;&#x1f1f8;</span></div><div class="m-val" id="usdBal">--</div></div>
-    <div class="m" style="border-left-color:#14b8a6"><div class="m-row"><span class="m-lbl">USDT</span><span class="m-icon">&#x1f4b5;</span></div><div class="m-val" id="usdtBal">--</div></div>
     <div class="m orange"><div class="m-row"><span class="m-lbl">BTC</span><span class="m-icon">&#x20bf;</span></div><div class="m-val" id="btcBal">--</div></div>
 
     <div class="sb-lbl">&#x1f4c8; Profit</div>
@@ -1290,8 +1289,6 @@ async function loadStatus(){
     else if(ex.eur!==undefined)document.getElementById('eurBal').textContent=Number(ex.eur).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' '+((ex.currency)||'CHF');
     if(fb.USD!==undefined)document.getElementById('usdBal').textContent=Number(fb.USD).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' USD';
     else document.getElementById('usdBal').textContent='--';
-    if(fb.USDT!==undefined)document.getElementById('usdtBal').textContent=Number(fb.USDT).toLocaleString('de-CH',{minimumFractionDigits:2,maximumFractionDigits:2})+' USDT';
-    else document.getElementById('usdtBal').textContent='--';
     if(ex.btc!==undefined)document.getElementById('btcBal').textContent=Number(ex.btc||0).toFixed(8)+' BTC';
     document.getElementById('lastUpd').textContent=new Date().toLocaleTimeString('de-DE');
     }catch(e){console.error(e)}
@@ -1323,7 +1320,7 @@ function renderTrades(trades){
         const nc=net>=0?'color:#10b981':'color:#ef4444';
         const dt=(t.timestamp||'').substring(5,16).replace('T',' ');
         const pm=t.payment_method||'-';
-        const pmBadge=pm==='twint'?'badge-grn':pm==='revolut'?'badge-pur':pm==='wise'?'badge-cyn':(pm==='sepa'||pm==='instantSepa')?'badge-org':(pm==='skrill'||pm==='n26'||pm==='paysera')?'badge-pnk':(pm.includes('usdt'))?'badge-teal':'badge-blu';
+        const pmBadge=pm==='twint'?'badge-grn':pm==='revolut'?'badge-pur':pm==='wise'?'badge-cyn':(pm==='sepa'||pm==='instantSepa')?'badge-org':(pm==='skrill'||pm==='n26'||pm==='paysera')?'badge-pnk':'badge-blu';
         const bc=t.buy_currency||'CHF',sc=t.currency||'CHF';
         const spotChange=t.spot_at_buy&&t.spot_at_sell?((t.spot_at_sell/t.spot_at_buy-1)*100).toFixed(2):'--';
         const spotColor=spotChange!=='--'?(Number(spotChange)>=0?'#10b981':'#ef4444'):'#64748b';
@@ -1626,8 +1623,8 @@ async function loadKraken(){
 async function loadMethodStats(){
     try{const days=document.getElementById('methodDays')?.value||'0';const r=await fetch('/api/profit/by-method?days='+days);const rows=await r.json();
     const el=document.getElementById('methodStats');if(!rows.length){el.innerHTML='<div style="color:#64748b;font-size:.8rem;padding:8px">Keine Daten</div>';return;}
-    const pmLabel={'twint':'Twint','revolut':'Revolut','wise':'Wise','sepa':'SEPA','instantSepa':'SEPA Instant','skrill':'Skrill','n26':'N26','paysera':'Paysera','solanausdt':'USDT (Solana)','arbitrumusdt':'USDT (Arbitrum)','ethereumusdt':'USDT (Ethereum)'};
-    const pmColor={'twint':'#10b981','revolut':'#8b5cf6','wise':'#06b6d4','sepa':'#f59e0b','instantSepa':'#f97316','skrill':'#ec4899','n26':'#ec4899','paysera':'#ec4899','solanausdt':'#14b8a6','arbitrumusdt':'#14b8a6','ethereumusdt':'#14b8a6'};
+    const pmLabel={'twint':'Twint','revolut':'Revolut','wise':'Wise','sepa':'SEPA','instantSepa':'SEPA Instant','skrill':'Skrill','n26':'N26','paysera':'Paysera'};
+    const pmColor={'twint':'#10b981','revolut':'#8b5cf6','wise':'#06b6d4','sepa':'#f59e0b','instantSepa':'#f97316','skrill':'#ec4899','n26':'#ec4899','paysera':'#ec4899'};
     const totalRev=rows.reduce((s,r)=>s+Number(r.revenue||0),0);
     let h='<table style="width:100%;border-collapse:collapse;font-size:.78rem">'
         +'<thead><tr style="color:#64748b;border-bottom:1px solid #1e293b">'
