@@ -346,13 +346,21 @@ class TradingEngine:
             interval = self._poll_active if has_funded else self._poll_idle
             time.sleep(interval)
     def _prune_tracking_sets(self):
-        """Prevent unbounded growth of tracking sets."""
-        for s, label in ((self._notified_contracts, "_notified_contracts"),
-                         (self._recorded_contracts, "_recorded_contracts")):
-            if len(s) > 200:
-                # Keep newest 100 (contract IDs are roughly chronological)
+        """Prevent unbounded growth of tracking sets.
+
+        The limits must stay above the number of terminal contracts, otherwise this
+        defeats the very filter it feeds: a contract is skipped only while its id is
+        in _recorded_contracts, so pruning to 100 meant several hundred finished
+        contracts were re-read and re-recorded on every single tick. The written
+        state file still looked correct, because the set grew back within the same
+        tick. Kept in sync with the caps in _save_id_set.
+        """
+        for s, label, keep in ((self._notified_contracts, "_notified_contracts", 5000),
+                               (self._recorded_contracts, "_recorded_contracts", 20000)):
+            if len(s) > keep:
+                # Keep newest (contract IDs are roughly chronological)
                 sorted_ids = sorted(s)
-                to_remove = sorted_ids[:-100]
+                to_remove = sorted_ids[:-keep]
                 s -= set(to_remove)
                 log.debug(f"Pruned {label}: {len(to_remove)} old entries removed")
 
