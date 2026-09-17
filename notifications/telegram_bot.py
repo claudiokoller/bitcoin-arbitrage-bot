@@ -38,6 +38,32 @@ class TelegramNotifier:
             lines.append(f"Betrag: {betrag}")
         if premium: lines.append(f"Premium: {premium:.1f}%")
         self._send("\n".join(lines))
+    def notify_payment_received(self, cid, method="", currency="", amount_sats=0,
+                                fiat_amount=0, account=""):
+        """Tell the seller a buyer claims to have paid, with what they need to check it.
+
+        The bot cannot see whether money actually arrived — only the bank can. This
+        is the prompt to go and look, so it carries the amount, the rail and which
+        account the offer was published with, and deliberately does not release
+        anything by itself.
+        """
+        method_labels = {"twint": "Twint", "revolut": "Revolut", "wise": "Wise",
+                         "sepa": "SEPA", "instantSepa": "SEPA Instant",
+                         "skrill": "Skrill", "n26": "N26", "paysera": "Paysera"}
+        lbl = method_labels.get(method, method or "?")
+        lines = [f"<b>💰 Zahlung gemeldet — bitte prüfen</b>",
+                 f"Contract: <code>{cid[:20]}</code>"]
+        if fiat_amount:
+            lines.append(f"Betrag: <b>{fiat_amount:.2f} {currency or ''}</b>".rstrip())
+        elif amount_sats:
+            lines.append(f"Betrag: <b>{amount_sats:,} sats</b>")
+        lines.append(f"Methode: {lbl}")
+        if account:
+            lines.append(f"Konto: <b>{account}</b>")
+        lines.append("")
+        lines.append("Geldeingang prüfen, dann in der Peach-App freigeben.")
+        self._send(chr(10).join(lines))
+
     def notify_dispute(self, cid):
         self._send(f"<b>DISPUTE!</b> <code>{cid[:16]}</code>")
     def notify_error(self, err):

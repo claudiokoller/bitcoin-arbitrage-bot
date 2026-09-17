@@ -472,7 +472,11 @@ class PeachPlatform(PlatformBase):
     # ─── CONTRACTS ─────────────────────────────────────────
 
     def get_contracts(self):
-        r = self._api_call("GET", f"{self.base_url}/contracts/summary", timeout=10)
+        # /contracts/summary grows with trade history — it is ~400 KB and takes a
+        # steady ~9s, so a 10s timeout sat right on the edge: every overrun triggered
+        # the three-attempt retry with backoff and turned a 9s call into well over a
+        # minute, which is what dominated the tick.
+        r = self._api_call("GET", f"{self.base_url}/contracts/summary", timeout=60)
         contracts = []
         sm = {
             "paymentRequired": OfferStatus.MATCHED,
