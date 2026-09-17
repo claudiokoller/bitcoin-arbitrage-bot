@@ -1,21 +1,51 @@
 """
 Offer sizing for auto_buy_escrow.
 
-Peach caps a sell offer at a fixed number of *sats* (800,000 since the
-2026-09 change), but the rotation amounts are configured in *euro*. Those two
-drift apart whenever the BTC price moves: a static euro list silently loses its
-top entries when BTC falls, and leaves the cap unused when BTC rises. Since a
-larger offer means fewer SEPA transfers for the same volume — and every transfer
-carries bank-closure risk — giving away headroom is not neutral.
+Peach caps a sell offer in *Swiss francs* — the cap comes from a Swiss
+regulatory limit, not from a bitcoin amount. Everything else here is
+denominated differently: the rotation amounts are configured in *euro* and the
+offer Peach actually validates is in *sats*. All three drift apart whenever the
+BTC price moves. Since a larger offer means fewer SEPA transfers for the same
+volume — and every transfer carries bank-closure risk — giving away headroom is
+not neutral, and overshooting is worse: Peach rejects the offer outright with
+FORM_INVALID["amount"].
 
-`cap_fraction` mode therefore expresses the rotation as fractions of the sats
-cap and converts to euro at the current spot each cycle. The offers then stay as
-large as Peach permits at any price, while keeping a spread across sizes.
+So the cap is resolved per cycle: `max_offer_chf` is converted to sats at the
+current BTC/CHF spot (see `resolve_cap_sats`). `cap_fraction` mode then
+expresses the rotation as fractions of that cap and converts to euro at the
+current BTC/EUR spot. The offers stay as large as Peach permits at any price
+while keeping a spread across sizes.
+
+`max_offer_sats` remains as the fallback for a CHF price-feed outage, and as the
+last *known-good* cap: raising `max_offer_chf` to a limit Peach has not actually
+granted yet would otherwise make every offer fail, so the buy path keeps one
+candidate that fit under the old cap. See the step-down in
+`_execute_buy_escrow`.
 
 The legacy `fixed` mode (a plain euro list) is still honoured so existing configs
 keep working unchanged.
 """
 import math
+
+# Peach's per-offer cap before the 2026-09-17 raise, in sats. Only a last-resort
+# default: the real cap is `max_offer_chf`, and `max_offer_sats` overrides this.
+LEGACY_CAP_SATS = 800_000
+
+
+def resolve_cap_sats(auto_cfg, spot_chf=None):
+    """Peach's per-offer cap expressed in sats at the current price.
+
+    A sats constant cannot express this cap: it silently blocks the top sizes
+    when BTC rises and gives away headroom when BTC falls. Falls back to
+    `max_offer_sats` when no CHF cap is configured or the CHF spot is
+    unavailable — never guesses, so a price-feed hiccup cannot inflate the cap
+    past what Peach accepts.
+    """
+    cap_chf = auto_cfg.get("max_offer_chf")
+    fallback = int(auto_cfg.get("max_offer_sats", LEGACY_CAP_SATS))
+    if cap_chf and spot_chf:
+        return int(cap_chf / spot_chf * 1e8)
+    return fallback
 
 
 def sats_for_eur(eur, spot_eur, withdraw_fee_sats, min_amount_sats):
@@ -38,7 +68,7 @@ def eur_for_sats(target_sats, spot_eur, withdraw_fee_sats):
     return int(math.floor(gross / 1e8 * spot_eur))
 
 
-def effective_amounts(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats):
+def effective_amounts(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats, spot_chf=None):
     """The euro rotation amounts to use this cycle, largest last.
 
     Returns [] when sizing cannot be computed (no spot price), so callers fall
@@ -50,7 +80,7 @@ def effective_amounts(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats):
     if mode != "cap_fraction" or not spot_eur:
         return sorted(configured)
 
-    cap = auto_cfg.get("max_offer_sats", 800_000)
+    cap = resolve_cap_sats(auto_cfg, spot_chf)
     fractions = auto_cfg.get("cap_fractions") or [0.98, 0.96, 0.94, 0.92, 0.90, 0.88, 0.86, 0.84]
     floor_eur = auto_cfg.get("min_offer_eur", 0)
 
@@ -69,11 +99,11 @@ def effective_amounts(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats):
     return sorted(set(out))
 
 
-def describe(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats):
+def describe(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats, spot_chf=None):
     """[(eur, sats, pct_of_cap)] for logging and the /sizes command."""
-    cap = auto_cfg.get("max_offer_sats", 800_000)
+    cap = resolve_cap_sats(auto_cfg, spot_chf)
     rows = []
-    for eur in effective_amounts(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats):
+    for eur in effective_amounts(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats, spot_chf):
         s = sats_for_eur(eur, spot_eur, withdraw_fee_sats, min_amount_sats)
         rows.append((eur, s, 100.0 * s / cap if cap else 0.0))
     return rows

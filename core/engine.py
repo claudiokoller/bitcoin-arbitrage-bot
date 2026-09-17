@@ -467,11 +467,13 @@ class TradingEngine:
     def _rotation_amounts(self, cfg):
         """The EUR amounts the rotation may use this cycle.
 
-        In cap_fraction mode these are derived from Peach's sats cap at the
-        current spot, so offers stay as close to the cap as Peach allows instead
-        of drifting with the BTC price. Falls back to the configured list if the
-        spot price is unavailable, so a price-feed hiccup cannot silently shrink
-        every offer.
+        In cap_fraction mode these are derived from Peach's cap at the current
+        spot, so offers stay as close to the cap as Peach allows instead of
+        drifting with the BTC price. Peach denominates that cap in CHF, so the
+        CHF spot is needed too; without it the sizing falls back to the
+        `max_offer_sats` cap rather than guessing. Falls back to the configured
+        list if the EUR spot price is unavailable, so a price-feed hiccup cannot
+        silently shrink every offer.
         """
         from core.offer_sizing import effective_amounts
         configured = sorted([a for a in cfg.get("amounts", [200, 300, 400, 500, 600])
@@ -484,7 +486,11 @@ class TradingEngine:
             return configured
         pconf = self.config.get("platforms", {}).get("peach", {})
         fee = cfg.get("withdraw_fee_sats", 2000)
-        amounts = effective_amounts(cfg, spot, fee, pconf.get("min_amount_sats", 10000))
+        try:
+            spot_chf = SpotPriceProvider.get_spot_chf()
+        except Exception:
+            spot_chf = None  # resolve_cap_sats then uses the max_offer_sats fallback
+        amounts = effective_amounts(cfg, spot, fee, pconf.get("min_amount_sats", 10000), spot_chf)
         return amounts or configured
 
     def _auto_buy_escrow_check(self):

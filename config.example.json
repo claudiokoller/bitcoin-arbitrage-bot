@@ -30,8 +30,9 @@
         "size_mode": "cap_fraction",
         "cap_fractions": [0.9, 0.8, 0.7, 0.6],
         "withdraw_fee_sats": 2000,
+        "max_offer_chf": 800,
         "max_offer_sats": 800000,
-        "_comment_sizing": "cap_fractions are fractions of max_offer_sats. Pick your own spread — the values here are illustrative.",
+        "_comment_sizing": "max_offer_chf is the platform per-offer cap and is converted to sats at the current BTC/CHF spot each cycle; max_offer_sats is only the fallback for a CHF price-feed outage and the last known-good cap. cap_fractions are fractions of the resolved cap. Pick your own spread — the values here are illustrative.",
         "premium": 5.5,
         "exclude_methods": ["revolut"],
         "min_wallet_fund_chf": 100
