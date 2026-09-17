@@ -524,6 +524,36 @@ class PeachPlatform(PlatformBase):
         r = self._api_call("GET", f"{self.base_url}/contract/{contract_id}")
         return r.json()
 
+    def _single_sig_release_payload(self, contract_id, contract):
+        """Build the release payload for an escrowVersion 2 (single-sig taproot) contract.
+
+        Peach builds and broadcasts the transaction itself, so it wants the bare
+        64-byte schnorr signature over the PSBT it hands out — not a finalized
+        transaction. The PSBT is verified against our funding transaction and the
+        buyer's payout address before it is signed: with a single-sig escrow our
+        signature alone moves the coins.
+        """
+        from release_escrow import sign_single_sig_release
+        offer_id = contract.get("offerId", "")
+        release_address = contract.get("releaseAddress", "")
+        if not release_address:
+            raise RuntimeError(f"contract {contract_id} has no releaseAddress — refusing to sign")
+
+        esc = self._api_call("GET", f"{self.base_url}/offer/{offer_id}/escrow", timeout=20).json()
+        funding_txids = (esc.get("funding") or {}).get("txIds", [])
+        if not funding_txids:
+            raise RuntimeError(f"offer {offer_id} has no funding txIds — cannot verify the release PSBT")
+
+        r = self._api_call("GET", f"{self.base_url}/contract/{contract_id}/signedReleasePSBT", timeout=20)
+        psbt_b64 = r.json().get("releasePsbt")
+        if not psbt_b64:
+            raise RuntimeError(f"signedReleasePSBT returned no PSBT for {contract_id}")
+
+        escrow_hex = self._get_escrow_privkey_hex(offer_id) if offer_id else self.private_key_hex
+        sig_hex = sign_single_sig_release(psbt_b64, escrow_hex, funding_txids, release_address)
+        log.info(f"Peach: signed single-sig taproot release for {contract_id} (offer {offer_id})")
+        return {"releaseTransactionSignature": sig_hex}
+
     def confirm_payment(self, contract_id):
         """Confirm payment received and sign release PSBT to properly close the trade in Peach"""
         self._ensure_auth()
@@ -536,7 +566,17 @@ class PeachPlatform(PlatformBase):
             release_psbt = data.get('releasePsbt')
             log.info(f"Peach: confirm {contract_id} tradeStatus={trade_status} batchPSBT={bool(batch_psbt)} releasePSBT={bool(release_psbt)}")
 
-            if batch_psbt or release_psbt:
+            # escrowVersion 2 contracts carry no PSBT of their own: Peach serves the
+            # exact transaction it will broadcast from a separate endpoint and only
+            # verifies our signature against it. Falling through to the legacy branch
+            # would post an empty confirm and the trade would never release.
+            escrow_version = data.get('escrowVersion')
+            is_single_sig = (escrow_version == ESCROW_VERSION
+                             or (escrow_version is None and not batch_psbt and not release_psbt))
+
+            if is_single_sig:
+                payload = self._single_sig_release_payload(contract_id, data)
+            elif batch_psbt or release_psbt:
                 from coincurve import PrivateKey
                 from release_escrow import sign_psbt, build_finalized_tx, get_signing_key_from_psbt
                 offer_id = data.get("offerId", "")
