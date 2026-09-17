@@ -30,6 +30,9 @@ class DynamicPricer:
         self.configs = {}
         self.snapshots = {}
         self.current_premiums = {}
+        self._build_configs(global_config)
+
+    def _build_configs(self, global_config):
         for pname, pcfg in global_config.get("platforms", {}).items():
             pricing = pcfg.get("dynamic_pricing", {})
             if pricing:
@@ -39,7 +42,22 @@ class DynamicPricer:
                     scan_interval=pricing.get("scan_interval",300), min_competitors=pricing.get("min_competitors",1),
                     ignore_outliers_below=pricing.get("ignore_outliers_below",2.0), smooth_factor=pricing.get("smooth_factor",0.5))
             else:
-                self.current_premiums[pname] = pcfg.get("target_premium", 6.0)
+                # setdefault, not assignment: on a reload this must not overwrite the
+                # premium currently in force with the configured target.
+                self.current_premiums.setdefault(pname, pcfg.get("target_premium", 6.0))
+
+    def reload(self, global_config):
+        """Re-read the thresholds after a config hot-reload.
+
+        These live in PricingConfig objects built at construction, so without
+        this a SIGHUP leaves the old floor/ceiling in force and only a restart
+        applies a change — the reload reports success either way, which is the
+        trap. Only the thresholds are rebuilt: `current_premiums` holds the
+        smoothing state and `snapshots` the market scan, and discarding those
+        would make the premium jump on the next tick.
+        """
+        self.configs = {}
+        self._build_configs(global_config)
     def get_premium(self, platform_name, platform=None):
         cfg = self.configs.get(platform_name)
         if not cfg or not cfg.enabled:
@@ -85,6 +103,16 @@ class DynamicPricer:
             snap.reason = f"scan error: {e}"
         return snap
     def _scan_peach(self, platform=None):
+        # Use platform's cached scan_market if available (avoids redundant API calls)
+        if platform and hasattr(platform, 'scan_market'):
+            offers = platform.scan_market()
+            premiums = []
+            for o in offers:
+                p = o.get("premium")
+                if p is not None and isinstance(p, (int, float)):
+                    premiums.append(float(p))
+            return premiums
+        # Fallback: direct API calls
         premiums = []
         seen = set()
         searches = [
@@ -93,12 +121,8 @@ class DynamicPricer:
         ]
         for curr, method in searches:
             try:
-                if platform and hasattr(platform, 'session') and hasattr(platform, 'base_url_v069'):
-                    r = platform.session.get(f"{platform.base_url_v069}/sellOffer",
-                        params={"currency": curr, "paymentMethod": method}, timeout=15)
-                else:
-                    r = requests.get("https://api.peachbitcoin.com/v069/sellOffer",
-                        params={"currency": curr, "paymentMethod": method}, timeout=15)
+                r = requests.get("https://api.peachbitcoin.com/v069/sellOffer",
+                    params={"currency": curr, "paymentMethod": method}, timeout=15)
                 r.raise_for_status()
                 data = r.json()
                 raw = data.get("offers", data) if isinstance(data, dict) else data

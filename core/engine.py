@@ -245,6 +245,16 @@ class TradingEngine:
             peach.access_token = None  # force re-auth on next tick
             log.info("reload_config: peach credentials updated, re-auth scheduled")
 
+        # Dynamic pricing thresholds are held in the pricer's own config objects, so they
+        # would otherwise survive a reload unchanged while it still logs success.
+        pricer = getattr(self, "pricer", None)
+        if pricer is not None and hasattr(pricer, "reload"):
+            try:
+                pricer.reload(new_cfg)
+                log.info("reload_config: dynamic pricing thresholds updated")
+            except Exception as e:
+                log.warning(f"reload_config: pricer reload: {e}")
+
         log.info("Config reloaded successfully")
 
     def add_platform(self, p):
