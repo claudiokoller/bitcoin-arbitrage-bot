@@ -112,11 +112,14 @@ class PeachPlatform(PlatformBase):
                 if not self.access_token or (time.time() - self._auth_time > 3000):
                     self.authenticate()
 
-    def _api_call(self, method, url, **kwargs):
+    def _api_call(self, method, url, quiet_statuses=(), **kwargs):
         """Make API call with automatic 401 retry, 5xx backoff, and transient
         network-error (Timeout/ConnectionError) retry so a short network blip doesn't
         fail a whole poll cycle. _api_call is used for idempotent GETs (+ cancel), so
-        retrying these is safe."""
+        retrying these is safe.
+
+        `quiet_statuses`: error statuses the caller expects and logs itself — logged here
+        at DEBUG instead of WARNING. Still raised as usual."""
         self._ensure_auth()
         kwargs.setdefault("timeout", 15)
         def _do():
@@ -149,7 +152,8 @@ class PeachPlatform(PlatformBase):
             time.sleep(2)
             r = _do()
         if r.status_code >= 400:
-            log.warning(f"Peach: {method} {url} -> {r.status_code}: {r.text[:500]}")
+            _lvl = log.debug if r.status_code in quiet_statuses else log.warning
+            _lvl(f"Peach: {method} {url} -> {r.status_code}: {r.text[:500]}")
         r.raise_for_status()
         return r
 
@@ -351,7 +355,9 @@ class PeachPlatform(PlatformBase):
         self._ensure_auth()
         url = f"{self.base_url_v069}/sellOffer/{offer_id}/tradeRequestReceived"
         log.debug(f"Peach: Checking trade requests for {offer_id}...")
-        r = self._api_call("GET", url)
+        # 401 is how a sold/expired offer answers, and the match poll plus the auto-accept
+        # watchdog re-sweep every tracked offer — the callers log it at the level it deserves.
+        r = self._api_call("GET", url, quiet_statuses=(401,))
         data = r.json()
 
         if isinstance(data, list):

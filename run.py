@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 import json, logging, os, signal, sys, time
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%H:%M:%S")
+# httpx logs every request URL at INFO. The Telegram bot API carries the bot token in the
+# URL path, so each getUpdates poll wrote the token into the journal — every few seconds.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("bot")
 
 def load_config(path="config.json"):

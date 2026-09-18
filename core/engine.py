@@ -277,11 +277,45 @@ class TradingEngine:
         # (premium reduction only saves it after 12h — too late if bot restarts before that)
         self._escrow_state[str(offer_id)] = {
             "premium": premium,
-            "sepa_account_index": sepa_account_index
+            "sepa_account_index": sepa_account_index,
+            # Recorded so a re-published offer can be linked back to this one — see
+            # _adopt_republished_state. The escrow survives a re-publish; the offer id does not.
+            "escrow_address": escrow_addr or "",
         }
         self._save_escrow_state()
         self._last_offer_created_at = time.time()
         self.trade_logger.log_event("peach", "offer_created", offer_id)
+
+    def _adopt_republished_state(self, offer_id, old_offer_id=None, escrow_address=None):
+        """Carry our local record over when Peach re-publishes an offer under a new id.
+
+        Peach can re-publish an offer under a NEW id (the new offer carries `oldOfferId`) while
+        keeping the same funded escrow. Everything we know about the offer — buy_data, premium,
+        SEPA account — is keyed by the OLD id, so without this the trade is booked from a
+        fallback estimate.
+
+        Links via `oldOfferId` first, then via the escrow address, which is the one thing a
+        re-publish cannot change. Fields already recorded under the new id win. Returns the
+        adopted state, or None when there is nothing to adopt.
+        """
+        oid = str(offer_id)
+        if self._escrow_state.get(oid, {}).get("buy_data"):
+            return None  # already a complete record under this id
+        src = None
+        if old_offer_id and str(old_offer_id) in self._escrow_state:
+            src = str(old_offer_id)
+        elif escrow_address:
+            src = next((k for k, v in self._escrow_state.items()
+                        if k != oid and v.get("escrow_address") == escrow_address), None)
+        if not src:
+            return None
+        state = {**self._escrow_state[src], **self._escrow_state.get(oid, {}), "republished_from": src}
+        if escrow_address:
+            state["escrow_address"] = escrow_address
+        self._escrow_state[oid] = state
+        self._save_escrow_state()
+        log.info(f"peach: offer {oid} is a re-publish of {src} — carried over buy data, premium and account")
+        return state
     def save_buy_data(self, offer_id, buy_data: dict):
         """Persist buy_data to escrow_state so it survives bot restarts."""
         with self._escrow_lock:
@@ -945,6 +979,22 @@ offers are covered too.
                 buy_data = info.get("buy_data", {}) or self._buy_data_cache.pop(oid, {})
                 if buy_data:
                     break
+        if not buy_data and offer_id:
+            # Neither in memory nor cached: read the persisted record. If there is none, this may
+            # be a re-published offer whose record still sits under its old id — the contract's
+            # escrow address links the two even if the re-publish was never seen while live.
+            buy_data = self._escrow_state.get(str(offer_id), {}).get("buy_data") or {}
+            if not buy_data:
+                esc_addr = None
+                plat = self.platforms.get(pname)
+                if plat is not None and hasattr(plat, "get_contract_detail"):
+                    try:
+                        _esc = (plat.get_contract_detail(contract.id) or {}).get("escrow")
+                        esc_addr = _esc if isinstance(_esc, str) else None
+                    except Exception as e:
+                        log.debug(f"{pname}: contract detail {contract.id}: {e}")
+                adopted = self._adopt_republished_state(offer_id, None, esc_addr)
+                buy_data = (adopted or {}).get("buy_data") or {}
 
         # Kraken withdrawal fee: fixed 0.000015 BTC
         KRAKEN_WITHDRAWAL_FEE_BTC = 0.000015
@@ -1022,8 +1072,13 @@ offers are covered too.
             pesc = self.pending_escrows.get(oid, {})
         prem = pesc.get("premium") or self._escrow_state.get(str(oid), {}).get("premium") or 0
         if not prem:
-            # Fallback: derive from actual prices and spot at buy
-            prem = (sell_price / (btc * spot_at_buy) - 1) * 100 if (btc and spot_at_buy) else 0
+            # Peach reports the premium on every contract — authoritative, nothing to derive.
+            prem = (getattr(contract, "raw_data", None) or {}).get("premium") or 0
+        if not prem:
+            # Last resort: derive it from the sale price. Both sides must be in the CONTRACT
+            # currency. spot_at_buy is in the BUY currency (EUR) while the sale price may be in
+            # CHF — mixing them turned a 6% trade into 0.13%.
+            prem = (sell_price / (btc * spot_now) - 1) * 100 if (btc and spot_now) else 0
 
         # sell_price_chf = buy_price_chf × (1 + premium%)
         # Kauf und Verkauf laufen zum gleichen Spot-Preis; Käufer zahlt nur Premium mehr.
