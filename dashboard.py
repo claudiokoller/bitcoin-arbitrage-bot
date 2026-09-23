@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Trading Bot v3.0 - Arbitrage Dashboard"""
 
-import sqlite3, json, logging, os, requests, subprocess
+import sqlite3, json, logging, os, requests, subprocess, hmac
 from datetime import datetime, timedelta
 from flask import send_file
 
@@ -16,10 +16,17 @@ from functools import wraps
 app = Flask(__name__)
 _AUTH_USER = os.environ.get("DASHBOARD_USER", "")
 _AUTH_PASS = os.environ.get("DASHBOARD_PASS", "")
+def _configured_credentials():
+    """(user, password) from env or config.json. No default password: an unset
+    one must lock the dashboard, not open it with a value anyone can read here."""
+    cfg = get_config().get("dashboard", {})
+    return (_AUTH_USER or cfg.get("user", "admin"),
+            _AUTH_PASS or cfg.get("password", ""))
 def check_auth(u, p):
-    au = _AUTH_USER or get_config().get("dashboard", {}).get("user", "admin")
-    ap = _AUTH_PASS or get_config().get("dashboard", {}).get("password", "admin123")
-    return u == au and p == ap
+    au, ap = _configured_credentials()
+    if not ap:
+        return False
+    return hmac.compare_digest(u, au) and hmac.compare_digest(p, ap)
 def requires_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -1830,6 +1837,9 @@ def index():
     return resp
 
 if __name__ == "__main__":
+    if not _configured_credentials()[1]:
+        raise SystemExit("Kein Dashboard-Passwort gesetzt: DASHBOARD_PASS setzen "
+                         "oder in config.json unter dashboard.password eintragen.")
     import ssl
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     cert = os.environ.get("DASHBOARD_CERT", "cert.pem")
