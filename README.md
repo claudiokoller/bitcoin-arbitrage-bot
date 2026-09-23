@@ -1,43 +1,98 @@
-# Bitcoin-Arbitrage-Bot
+# Bitcoin Arbitrage Bot
 
-Ein semi-autonomer Arbitrage-Bot, der Bitcoin auf einer Börse (Kraken) kauft und auf einem Peer-to-Peer-Marktplatz (Peach) mit Aufpreis an Privatpersonen weiterverkauft. Gesteuert wird er über Telegram, dazu gibt es ein kleines Web-Dashboard.
+Kauft Bitcoin auf einer Börse (Kraken) zum Börsenkurs und verkauft sie auf einem
+Peer-to-Peer-Marktplatz (Peach) mit Aufpreis an Privatpersonen. Angebote, Escrow
+und Preisanpassung laufen automatisch, die Zahlungsprüfung bleibt manuell.
+Gesteuert per Telegram, dazu ein kleines Web-Dashboard.
 
-**[Architekturdiagramm](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Die Idee in einfachen Worten
 
-Auf P2P-Marktplätzen kaufen Leute Bitcoin direkt von anderen Personen, ohne Konto bei einer Börse. Dafür zahlen sie einen Aufpreis gegenüber dem Börsenkurs, typischerweise ein paar Prozent. Der Bot nutzt diese Differenz:
+Auf P2P-Marktplätzen kaufen Leute Bitcoin direkt von anderen Personen, ohne
+Konto bei einer Börse. Dafür zahlen sie einen Aufpreis gegenüber dem Börsenkurs,
+typischerweise ein paar Prozent. Der Bot nutzt diese Differenz.
 
-1. BTC auf Kraken zum Börsenkurs kaufen
-2. Auf Peach ein Verkaufsangebot mit Aufpreis erstellen (die Plattform erlaubt aktuell höchstens +6 %)
-3. Die BTC in ein Escrow einzahlen – ein Treuhandkonto auf der Blockchain, damit der Käufer sicher sein kann, dass die Coins da sind
-4. Ein Käufer nimmt das Angebot an und überweist den Betrag (Twint, SEPA, Revolut, Wise …)
-5. Sobald das Geld eingegangen ist, werden die BTC aus dem Escrow an den Käufer freigegeben
-
-Der Gewinn ist der Aufpreis abzüglich Gebühren (Börse, Auszahlung, Blockchain-Transaktion, Plattform).
-
-Angebote lassen sich per Telegram-Befehl von Hand anstossen oder im Auto-Modus in einem festen Intervall erstellen. Den Zahlungseingang prüfe ich selbst: Meldet ein Käufer, dass er bezahlt hat, schickt der Bot eine Telegram-Nachricht mit Betrag und Konto. Ob das Geld wirklich angekommen ist, sieht nur die Bank – deshalb ist die automatische Bestätigung standardmässig ausgeschaltet.
+Der Gewinn ist der Aufpreis abzüglich Gebühren – Börse, Auszahlung,
+Blockchain-Transaktion und Plattform.
 
 ## Was der Bot macht
 
-- **Kauf auf der Börse**: Marktorder auf Kraken, Auszahlung der BTC in eine eigene Wallet
-- **Angebote auf Peach**: erstellen, ins Escrow einzahlen, eingehende Kaufanfragen annehmen
-- **Preis anpassen**: Findet ein Angebot nach 24 h keinen Käufer, senkt der Bot den Aufpreis schrittweise
-- **Marktanalyse**: vergleicht die Aufpreise der Konkurrenz und schlägt einen eigenen vor
-- **Gewinnrechnung**: jeder Trade wird mit allen Gebühren in einer SQLite-Datenbank erfasst
-- **Telegram-Bot**: Status, Kontostände, offene Angebote, Gewinnübersicht und Steuerung per Chat
-- **Web-Dashboard** (Flask): Gewinn über Zeit, Trade-Historie, Marktübersicht
+1. **Kaufen** – Marktorder auf Kraken, Auszahlung der BTC in eine eigene Wallet.
+2. **Anbieten** – Verkaufsangebot auf Peach mit Aufpreis (die Plattform erlaubt
+   aktuell höchstens +6 %).
+3. **Absichern** – die BTC gehen in ein Escrow, ein Treuhandkonto auf der
+   Blockchain, damit der Käufer sicher sein kann, dass die Coins da sind.
+4. **Nachsteuern** – findet ein Angebot nach 24 Stunden keinen Käufer, senkt der
+   Bot den Aufpreis schrittweise. Die Höhe leitet er aus den Angeboten der
+   Konkurrenz ab.
+5. **Freigeben** – meldet ein Käufer die Zahlung, schickt der Bot eine
+   Telegram-Nachricht mit Betrag und Konto. Bestätigt wird von Hand, dann gehen
+   die BTC aus dem Escrow an den Käufer.
+
+Jeder Trade wird mit allen Gebühren in einer SQLite-Datenbank erfasst.
+
+## Beispiel
+
+```
+/status
+
+Status ▶️ (3d 4h)
+Spot: 84'200 CHF
+
+Plattformen
+  peach: ok
+
+Exchanges
+  kraken: ok
+
+Offers: 2 pending, 1 funded
+Heute: 1'250'000 sats
+```
+
+*(Beispiel mit erfundenen Zahlen.)*
+
+## Architektur
+
+```mermaid
+flowchart LR
+    K["Kraken<br/>Börsenkurs"] --> W["eigene Wallet"]
+    W --> P["Peach<br/>Angebot + Escrow"]
+    P --> B(["Käufer"])
+    B -->|Zahlung| M["manuelle Prüfung"]
+    M -->|bestätigt| P
+    P --> DB[("SQLite<br/>Trades + Gebühren")]
+    TG(["Telegram"]) <--> P
+```
+
+Mehr Details — Trade-Lebenszyklus, Sicherheitsmodell, Komponenten:
+[docs/architecture.md](docs/architecture.md)
+
+Zusätzlich gibt es eine
+[interaktive Version des Diagramms](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html).
 
 ## Technisch interessante Teile
 
-- **Bitcoin-Signaturen selbst implementiert** ([core/taproot.py](core/taproot.py)): Die Plattform nutzt Taproot-Escrows. Die Adressberechnung und das Signieren (Schnorr) habe ich nach den offiziellen Spezifikationen (BIP340/341) in Python umgesetzt.
-- **Schlüssel aus einer Seed-Phrase ableiten** ([core/hd_keys.py](core/hd_keys.py)): Jedes Angebot bekommt einen eigenen Escrow-Schlüssel, abgeleitet nach BIP32/BIP39 – gleich wie in der offiziellen Peach-App, damit beide dieselben Schlüssel sehen.
-- **Nichts blind signieren**: Bevor der Bot BTC ins Escrow schickt, rechnet er die Escrow-Adresse selbst nach. Bevor er eine Freigabe signiert, prüft er, dass sie wirklich an den Käufer geht. Bei einem Single-Sig-Escrow reicht meine Signatur allein, um die Coins zu bewegen – ein Fehler wäre also nicht rückgängig zu machen.
-- **Angebotsgrösse in Franken**: Die Plattform begrenzt ein Angebot auf einen CHF-Betrag. Da der BTC-Kurs schwankt, rechnet der Bot die Grenze in jedem Durchlauf neu in Satoshi um, statt mit festen Werten zu arbeiten, die bald veraltet wären ([core/offer_sizing.py](core/offer_sizing.py)).
-- **Mehrere Threads**: Die Hauptschleife und der Telegram-Bot laufen parallel und greifen auf dieselben Daten zu; Locks verhindern, dass sie sich in die Quere kommen.
-- **Verschlüsselte Zahlungsdaten**: Bankdaten gehen nur PGP-verschlüsselt an den Käufer.
+- **Bitcoin-Signaturen selbst implementiert** ([core/taproot.py](core/taproot.py)):
+  Die Plattform nutzt Taproot-Escrows. Adressberechnung und Schnorr-Signaturen
+  habe ich nach den Spezifikationen BIP340/341 in Python umgesetzt.
+- **Schlüssel aus einer Seed-Phrase** ([core/hd_keys.py](core/hd_keys.py)): Jedes
+  Angebot bekommt einen eigenen Escrow-Schlüssel, abgeleitet nach BIP32/39 –
+  gleich wie in der offiziellen App, damit beide dieselben Schlüssel sehen.
+- **Nichts blind signieren**: Vor dem Finanzieren rechnet der Bot die
+  Escrow-Adresse selbst nach, vor der Freigabe prüft er, dass sie an den Käufer
+  geht. Bei einem Single-Sig-Escrow reicht eine Signatur, um die Coins zu
+  bewegen – ein Fehler wäre nicht rückgängig zu machen.
+- **Angebotsgrösse in Franken** ([core/offer_sizing.py](core/offer_sizing.py)):
+  Die Plattform begrenzt ein Angebot auf einen CHF-Betrag; der Bot rechnet die
+  Grenze jeden Durchlauf neu in Satoshi um.
+- **Mehrere Threads**: Hauptschleife und Telegram-Bot laufen parallel auf
+  denselben Daten; Locks verhindern, dass sie sich in die Quere kommen.
+- **Verschlüsselte Zahlungsdaten**: Bankdaten gehen nur PGP-verschlüsselt an den
+  Käufer.
 
-## Projektstruktur
+## Module
 
 ```
 ├── core/
@@ -48,37 +103,54 @@ Angebote lassen sich per Telegram-Befehl von Hand anstossen oder im Auto-Modus i
 │   ├── offer_sizing.py    # Angebotsgrössen aus dem CHF-Limit
 │   ├── pricing.py         # Aufpreis-Berechnung aus den Konkurrenzangeboten
 │   └── trade_logger.py    # Trade-Datenbank (SQLite)
-├── exchanges/
-│   ├── kraken.py          # Kraken-API
-│   └── bitvavo.py         # Bitvavo-API (Alternative)
-├── platforms/
-│   └── peach.py           # Peach-API
-├── notifications/
-│   └── telegram_bot.py    # Telegram-Befehle und Meldungen
+├── exchanges/             # Kraken, Bitvavo
+├── platforms/             # Peach
+├── notifications/         # Telegram-Befehle und Meldungen
 ├── dashboard.py           # Web-Dashboard (Flask)
-├── run.py                 # Startpunkt
-└── config.example.json    # Konfigurationsvorlage
+└── run.py                 # Startpunkt
 ```
 
-## Technologien
-
-Python, REST-APIs, Bitcoin (Taproot/Schnorr, BIP32/39, PSBT), secp256k1, PGP, SQLite, Flask, Telegram Bot API
-
-## Einrichtung
+## Setup
 
 ```bash
 pip install requests python-telegram-bot coincurve pgpy flask
+
 cp config.example.json config.json
 # config.json mit API-Keys, Seed-Phrase und Zahlungsdaten ausfüllen
+
 python run.py
 ```
 
-## Hinweis
+Braucht Python 3.11+, ein Kraken-Konto, ein Peach-Konto und einen Telegram-Bot
+(via [@BotFather](https://t.me/BotFather)). Seed-Phrase und Zahlungsdaten
+gehören in die lokale `config.json` und nie ins Repo.
 
-Der Bot läuft bei mir produktiv. Dieses Repo zeigt den Code als Portfolio-Projekt – es ist keine fertige Lösung zum Nachbauen.
+## Designentscheide
 
-**Veröffentlicht:** Taproot-Implementierung, Schlüsselableitung, Angebotsgrössen, Preisberechnung, die Anbindung an Kraken und Peach, Datenmodell, Datenbank, Telegram-Bot und Dashboard.
+- **Die Zahlungsprüfung bleibt beim Menschen.** Ob Geld eingegangen ist, sieht
+  nur die Bank. Der teuerste Fehler wäre, Bitcoin für eine Zahlung freizugeben,
+  die nie ankam – das zu automatisieren spart wenig Zeit und schafft viel Risiko.
+- **Selbst nachrechnen statt vertrauen.** Escrow-Adresse und Auszahlungsziel
+  prüft der Bot aus den eigenen Schlüsseln, bevor er signiert.
+- **Alles mit Gebühren rechnen.** Erst nach Abzug von Börsen-, Auszahlungs-,
+  Blockchain- und Plattformgebühr zeigt sich, ob ein Trade sich gelohnt hat.
 
-**Nicht veröffentlicht:** die eigentliche Handelslogik (wann welches Angebot erstellt, finanziert und angenommen wird), das Bauen der Wallet-Transaktionen und der Umgang mit Zahlungsdaten. In [core/engine.py](core/engine.py) stehen diese Funktionen nur als dokumentierte Hüllen, damit der Ablauf nachvollziehbar bleibt.
+## Hinweis zum Umfang
+
+Der Bot läuft produktiv. Dieses Repo zeigt den Code als Portfolio-Projekt, nicht
+als fertige Lösung zum Nachbauen.
+
+**Veröffentlicht:** Taproot-Implementierung, Schlüsselableitung, Angebotsgrössen,
+Preisberechnung, Anbindung an Kraken und Peach, Datenmodell, Datenbank,
+Telegram-Bot und Dashboard.
+
+**Nicht veröffentlicht:** die eigentliche Handelslogik, das Bauen der
+Wallet-Transaktionen und der Umgang mit Zahlungsdaten. In
+[core/engine.py](core/engine.py) stehen diese Funktionen als dokumentierte
+Hüllen, damit der Ablauf nachvollziehbar bleibt.
 
 Nutzung auf eigenes Risiko.
+
+## Lizenz
+
+MIT – siehe [LICENSE](LICENSE).
