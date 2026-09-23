@@ -4,6 +4,10 @@
     "auto_buy_and_fund": true,
     "auto_confirm_payment": false,
     "db_path": "trades.db",
+    "dashboard": {
+        "user": "admin",
+        "password": "EIGENES_PASSWORT_SETZEN"
+    },
     "exchanges": {
         "kraken_chf": {
             "enabled": true,
@@ -32,7 +36,7 @@
         "withdraw_fee_sats": 2000,
         "max_offer_chf": 800,
         "max_offer_sats": 800000,
-        "_comment_sizing": "max_offer_chf is the platform per-offer cap and is converted to sats at the current BTC/CHF spot each cycle; max_offer_sats is only the fallback for a CHF price-feed outage and the last known-good cap. cap_fractions are fractions of the resolved cap. Pick your own spread — the values here are illustrative.",
+        "_comment_sizing": "max_offer_chf ist das Limit der Plattform pro Angebot und wird in jedem Zyklus zum aktuellen BTC/CHF-Spotpreis in Sats umgerechnet; max_offer_sats dient nur als Fallback bei einem Ausfall des CHF-Preisfeeds und als letztes bekanntes gültiges Limit. cap_fractions sind Anteile am aufgelösten Limit. Die Verteilung selbst wählen – die Werte hier sind nur Beispiele.",
         "premium": 5.5,
         "exclude_methods": ["revolut"],
         "min_wallet_fund_chf": 100
@@ -70,7 +74,7 @@
                 "n26": {"phone": "+41XXXXXXXXX", "email": "your@email.com"},
                 "paysera": {"phone": "+41XXXXXXXXX"}
             },
-            "_comment_sepa": "One entry per bank account you rotate through. instant_fallback names the account to use when the counterparty needs an instant transfer and this one cannot do it.",
+            "_comment_sepa": "Ein Eintrag pro Bankkonto in der Rotation. instant_fallback nennt das Konto, das verwendet wird, wenn die Gegenpartei eine Sofortüberweisung braucht und dieses Konto das nicht kann.",
             "sepa_accounts": [
                 {"iban": "XXXXXXXXXXXX", "bic": "XXXXXXXXXXX", "beneficiary": "Your Name", "name": "Bank A", "instant": true},
                 {"iban": "XXXXXXXXXXXX", "bic": "XXXXXXXXXXX", "beneficiary": "Your Name", "name": "Bank B", "instant": false, "instant_fallback": "Bank A"}

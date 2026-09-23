@@ -1,101 +1,84 @@
-# Bitcoin Arbitrage Trading Bot
+# Bitcoin-Arbitrage-Bot
 
-Semi-automated Bitcoin arbitrage between centralized exchanges and P2P platforms.
+Ein semi-autonomer Arbitrage-Bot, der Bitcoin auf einer Börse (Kraken) kauft und auf einem Peer-to-Peer-Marktplatz (Peach) mit Aufpreis an Privatpersonen weiterverkauft. Gesteuert wird er über Telegram, dazu gibt es ein kleines Web-Dashboard.
 
-Buy BTC at spot price on an exchange, sell at a premium on a P2P marketplace (the platform currently caps sell offers at +6%). Offer creation and premium setting are done manually — trade matching, payment handling, and escrow release are automated.
+**[Architekturdiagramm](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
 
-**[Architecture Diagram](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html)**
+## Die Idee in einfachen Worten
 
-## Trade Cycle
+Auf P2P-Marktplätzen kaufen Leute Bitcoin direkt von anderen Personen, ohne Konto bei einer Börse. Dafür zahlen sie einen Aufpreis gegenüber dem Börsenkurs, typischerweise ein paar Prozent. Der Bot nutzt diese Differenz:
 
-1. **Create sell offer** on P2P platform with manual premium (e.g. +7%)
-2. **Buy BTC** on exchange at spot price (CHF/EUR/USD/USDT)
-3. **Fund escrow** — withdraw to hot wallet, then on-chain TX to the escrow address (verified against our own key first)
-4. **Match** — auto-accept trade requests with encrypted payment data (PGP)
-5. **Payment** — buyer pays via Twint/SEPA/Revolut/Wise/Skrill/N26/Paysera/USDT
-6. **Release** — verify the release PSBT, then sign it (taproot key path, or legacy 2-of-2)
-7. **Auto-reduce premium** — PATCH live offers if no match after 24h
+1. BTC auf Kraken zum Börsenkurs kaufen
+2. Auf Peach ein Verkaufsangebot mit Aufpreis erstellen (die Plattform erlaubt aktuell höchstens +6 %)
+3. Die BTC in ein Escrow einzahlen – ein Treuhandkonto auf der Blockchain, damit der Käufer sicher sein kann, dass die Coins da sind
+4. Ein Käufer nimmt das Angebot an und überweist den Betrag (Twint, SEPA, Revolut, Wise …)
+5. Sobald das Geld eingegangen ist, werden die BTC aus dem Escrow an den Käufer freigegeben
 
-## Features
+Der Gewinn ist der Aufpreis abzüglich Gebühren (Börse, Auszahlung, Blockchain-Transaktion, Plattform).
 
-- **Multi-currency**: CHF, EUR, USD, USDT support
-- **Multi-payment**: Twint, SEPA, SEPA Instant, Revolut, Wise, Skrill, N26, Paysera, USDT (Solana/Arbitrum/Ethereum)
-- **HD escrow keys**: BIP32 derivation per offer (`m/84'/0'/0'/{offerId}'`)
-- **Single-sig taproot escrow**: BIP341/340 key-path escrow (`escrowVersion 2`) with the legacy 2-of-2 P2WSH path kept for older contracts
-- **Cap-aware offer sizing**: offer sizes are derived from the platform's CHF cap, converted to sats at the current spot price each cycle, so they stay maximal as the BTC price moves
-- **PGP encryption**: Symmetric key exchange for payment data
-- **Auto premium reduction**: Live PATCH on stale offers (no cancel/refund cycle)
-- **Auto buy-escrow**: Buys BTC and creates a funded offer automatically on a configurable interval (`/auto [premium%]`)
-- **Dual fill detection**: Order polling + balance change fallback
-- **Profit tracking**: Full fee breakdown (exchange, withdrawal, funding, platform)
-- **Telegram bot**: Complete remote control with inline keyboards
-- **Market scanner**: Competitive analysis with premium recommendations
-- **Web dashboard**: Real-time P&L, trade history, payment method breakdown, market monitor
+Angebote lassen sich per Telegram-Befehl von Hand anstossen oder im Auto-Modus in einem festen Intervall erstellen. Den Zahlungseingang prüfe ich selbst: Meldet ein Käufer, dass er bezahlt hat, schickt der Bot eine Telegram-Nachricht mit Betrag und Konto. Ob das Geld wirklich angekommen ist, sieht nur die Bank – deshalb ist die automatische Bestätigung standardmässig ausgeschaltet.
 
-## Project Structure
+## Was der Bot macht
+
+- **Kauf auf der Börse**: Marktorder auf Kraken, Auszahlung der BTC in eine eigene Wallet
+- **Angebote auf Peach**: erstellen, ins Escrow einzahlen, eingehende Kaufanfragen annehmen
+- **Preis anpassen**: Findet ein Angebot nach 24 h keinen Käufer, senkt der Bot den Aufpreis schrittweise
+- **Marktanalyse**: vergleicht die Aufpreise der Konkurrenz und schlägt einen eigenen vor
+- **Gewinnrechnung**: jeder Trade wird mit allen Gebühren in einer SQLite-Datenbank erfasst
+- **Telegram-Bot**: Status, Kontostände, offene Angebote, Gewinnübersicht und Steuerung per Chat
+- **Web-Dashboard** (Flask): Gewinn über Zeit, Trade-Historie, Marktübersicht
+
+## Technisch interessante Teile
+
+- **Bitcoin-Signaturen selbst implementiert** ([core/taproot.py](core/taproot.py)): Die Plattform nutzt Taproot-Escrows. Die Adressberechnung und das Signieren (Schnorr) habe ich nach den offiziellen Spezifikationen (BIP340/341) in Python umgesetzt.
+- **Schlüssel aus einer Seed-Phrase ableiten** ([core/hd_keys.py](core/hd_keys.py)): Jedes Angebot bekommt einen eigenen Escrow-Schlüssel, abgeleitet nach BIP32/BIP39 – gleich wie in der offiziellen Peach-App, damit beide dieselben Schlüssel sehen.
+- **Nichts blind signieren**: Bevor der Bot BTC ins Escrow schickt, rechnet er die Escrow-Adresse selbst nach. Bevor er eine Freigabe signiert, prüft er, dass sie wirklich an den Käufer geht. Bei einem Single-Sig-Escrow reicht meine Signatur allein, um die Coins zu bewegen – ein Fehler wäre also nicht rückgängig zu machen.
+- **Angebotsgrösse in Franken**: Die Plattform begrenzt ein Angebot auf einen CHF-Betrag. Da der BTC-Kurs schwankt, rechnet der Bot die Grenze in jedem Durchlauf neu in Satoshi um, statt mit festen Werten zu arbeiten, die bald veraltet wären ([core/offer_sizing.py](core/offer_sizing.py)).
+- **Mehrere Threads**: Die Hauptschleife und der Telegram-Bot laufen parallel und greifen auf dieselben Daten zu; Locks verhindern, dass sie sich in die Quere kommen.
+- **Verschlüsselte Zahlungsdaten**: Bankdaten gehen nur PGP-verschlüsselt an den Käufer.
+
+## Projektstruktur
 
 ```
 ├── core/
-│   ├── engine.py          # Main trading loop (~30s tick)
-│   ├── models.py          # Data models (SellOffer, Contract, etc.)
-│   ├── hd_keys.py         # BIP32/BIP39 key derivation (pure Python)
-│   ├── taproot.py         # BIP340/341/086: tweak, bech32m, sighash, schnorr
-│   ├── offer_sizing.py    # Offer sizes derived from the platform's CHF cap
-│   ├── pricing.py         # Dynamic premium calculation
-│   └── trade_logger.py    # SQLite trade history
+│   ├── engine.py          # Hauptschleife (alle ~30 s)
+│   ├── models.py          # Datenmodelle (Angebot, Vertrag …)
+│   ├── hd_keys.py         # Schlüsselableitung aus der Seed-Phrase (BIP32/39)
+│   ├── taproot.py         # Taproot-Adressen und Schnorr-Signaturen (BIP340/341)
+│   ├── offer_sizing.py    # Angebotsgrössen aus dem CHF-Limit
+│   ├── pricing.py         # Aufpreis-Berechnung aus den Konkurrenzangeboten
+│   └── trade_logger.py    # Trade-Datenbank (SQLite)
 ├── exchanges/
-│   ├── base.py            # Exchange base class
-│   └── kraken.py          # Kraken API (HMAC-SHA512 auth)
+│   ├── kraken.py          # Kraken-API
+│   └── bitvavo.py         # Bitvavo-API (Alternative)
 ├── platforms/
-│   ├── base.py            # Platform base class
-│   └── peach.py           # Peach Bitcoin API (v1 + v069)
+│   └── peach.py           # Peach-API
 ├── notifications/
-│   └── telegram_bot.py    # Telegram notifications + commands
-├── dashboard.py           # Web dashboard (Flask)
-├── run.py                 # Entry point
-├── config.example.json    # Configuration template
-└── architecture-diagram.html  # Architecture diagram
+│   └── telegram_bot.py    # Telegram-Befehle und Meldungen
+├── dashboard.py           # Web-Dashboard (Flask)
+├── run.py                 # Startpunkt
+└── config.example.json    # Konfigurationsvorlage
 ```
 
-## Setup
+## Technologien
+
+Python, REST-APIs, Bitcoin (Taproot/Schnorr, BIP32/39, PSBT), secp256k1, PGP, SQLite, Flask, Telegram Bot API
+
+## Einrichtung
 
 ```bash
 pip install requests python-telegram-bot coincurve pgpy flask
 cp config.example.json config.json
-# Edit config.json with your API keys, mnemonic, payment data
+# config.json mit API-Keys, Seed-Phrase und Zahlungsdaten ausfüllen
 python run.py
 ```
 
-## Configuration
+## Hinweis
 
-See `config.example.json` for all options. Key settings:
+Der Bot läuft bei mir produktiv. Dieses Repo zeigt den Code als Portfolio-Projekt – es ist keine fertige Lösung zum Nachbauen.
 
-- **Exchange**: API key/secret, trading pair, withdrawal key
-- **P2P Platform**: Private key (secp256k1), mnemonic (BIP39), PGP keypair
-- **Payment methods**: Per-currency method list (CHF/EUR/USD/USDT)
-- **Premium**: Base premium, floor, auto-reduction interval. The platform enforces its own bounds — currently −5% to +6%; anything above is rejected outright.
-- **Auto buy-escrow**: Interval, offer sizing (`size_mode`, `cap_fractions`, `max_offer_chf`, `max_offer_sats`), fixed premium, excluded methods
-- **Telegram**: Bot token + chat ID for notifications
+**Veröffentlicht:** Taproot-Implementierung, Schlüsselableitung, Angebotsgrössen, Preisberechnung, die Anbindung an Kraken und Peach, Datenmodell, Datenbank, Telegram-Bot und Dashboard.
 
-## Key Design Decisions
+**Nicht veröffentlicht:** die eigentliche Handelslogik (wann welches Angebot erstellt, finanziert und angenommen wird), das Bauen der Wallet-Transaktionen und der Umgang mit Zahlungsdaten. In [core/engine.py](core/engine.py) stehen diese Funktionen nur als dokumentierte Hüllen, damit der Ablauf nachvollziehbar bleibt.
 
-- **v069 API for trade requests**: The v1 matches endpoint often returns empty. The undocumented v069 endpoint reliably returns incoming trade requests.
-- **HD key derivation**: Each offer gets a unique escrow key derived from the mnemonic, matching the P2P app's derivation path for compatibility.
-- **Live premium PATCH**: Instead of cancelling stale offers (which triggers on-chain refund), premium is reduced via PATCH on the live offer.
-- **Dual fill detection**: Exchange order queries can be slow. After 15s, the bot also checks balance changes as a fallback to detect filled orders faster.
-- **Buy data preservation**: Actual exchange buy price is preserved through the full escrow lifecycle for accurate profit calculation.
-- **Escrow address verification**: A single-sig escrow address is a pure function of our escrow key, so the address returned by the platform is re-derived locally and rejected on mismatch. Under the legacy 2-of-2 escrow a wrong address merely produced an unspendable output; with single-sig it would hand the coins to someone else.
-- **Release PSBT verification before signing**: The release PSBT must spend our funding transaction and pay the buyer's release address a non-zero amount. A legacy PSBT was harmless without the platform's counter-signature — a single-sig one is not, since our signature alone is sufficient to move the funds.
-- **Offer sizes derived from the CHF cap**: Three denominations are in play — the platform caps an offer in *Swiss francs* (a regulatory limit), the rotation is configured in *fiat*, and the offer actually validated is in *sats*. A static fiat list silently loses its largest entries when BTC falls and leaves headroom unused when it rises. Holding the cap as a sats constant has the same defect one level up: the same number is a different CHF amount every day, so the top sizes start getting rejected as BTC rises. Resolving the cap from CHF each cycle keeps the largest offer at ~98% of what the platform allows at any price and holds its *fiat* value steady. Larger offers also mean fewer bank transfers for the same volume, which matters beyond fees.
-- **A raised cap needs a floor**: Every rotation size derives from the cap, so a cap configured higher than the platform actually grants puts *all* of them out of range and the step-down would create no offer at all. One candidate sized to the previous cap is always kept, which bounds that failure to a few rejected API calls that also record the true limit.
-- **Offer cooldown**: Auto buy-escrow enforces a configurable minimum between offer creations (`min_offer_interval_sec`) to prevent rapid re-triggering when an exchange withdrawal arrives faster than the check interval.
-
-## Disclaimer
-
-This bot is actively used in production. The code here is shared as a portfolio showcase and for educational purposes — it is not a turnkey solution and will not run unattended as published.
-
-**What is complete and real:** the single-sig taproot escrow implementation (BIP340/341/086 — tweak, bech32m, sighash, schnorr), BIP32/BIP39 key derivation, offer sizing, the marketplace and exchange clients, the data model, the trade database and the dashboard.
-
-**What is not published:** the operative trading logic inside `core/engine.py` — offer creation and sizing decisions, escrow funding coordination, trade-request matching and auto-accept, and premium maintenance on stale offers. Those methods are kept as documented signatures so the architecture and control flow remain readable, but they raise `NotImplementedError`. Payment-data handling and the PGP encryption flow are likewise omitted.
-
-Use at your own risk.
+Nutzung auf eigenes Risiko.

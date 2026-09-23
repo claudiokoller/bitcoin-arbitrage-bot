@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Bitcoin Arbitrage Bot — Architecture</title>
+<title>Bitcoin-Arbitrage-Bot — Architektur</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -200,39 +200,39 @@
 <body>
 <div class="container">
 
-  <h1>Bitcoin Arbitrage Trading Bot</h1>
-  <p class="subtitle">Automated system that buys Bitcoin on centralized exchanges at spot price and sells peer-to-peer at a premium. Fully autonomous from order execution to on-chain escrow release, with single-sig taproot escrows verified locally before funding and before signing.</p>
+  <h1>Bitcoin-Arbitrage-Bot</h1>
+  <p class="subtitle">Semi-autonomer Arbitrage-Bot: kauft Bitcoin auf einer Börse zum Tageskurs und verkauft sie auf einem Peer-to-Peer-Marktplatz mit Aufpreis. Kauf, Angebot, Escrow und Freigabe laufen weitgehend automatisch; den Zahlungseingang prüfe ich selbst. Escrow-Adresse und Freigabe werden vor jedem Schritt lokal nachgerechnet.</p>
 
   <!-- ── HIGH-LEVEL FLOW ── -->
   <div class="flow-section">
     <div class="flow-step">
       <div class="icon">🏦</div>
-      <div class="label">Exchange</div>
-      <div class="value">Market Buy</div>
+      <div class="label">Börse</div>
+      <div class="value">Marktkauf</div>
     </div>
     <div class="flow-arrow">&#10141;</div>
     <div class="flow-step">
       <div class="icon">🔑</div>
       <div class="label">Hot Wallet</div>
-      <div class="value">UTXO Management</div>
+      <div class="value">UTXO-Verwaltung</div>
     </div>
     <div class="flow-arrow">&#10141;</div>
     <div class="flow-step">
       <div class="icon">🔒</div>
       <div class="label">Escrow</div>
-      <div class="value">Single-Sig Taproot</div>
+      <div class="value">Single-Sig-Taproot</div>
     </div>
     <div class="flow-arrow">&#10141;</div>
     <div class="flow-step">
       <div class="icon">🤝</div>
-      <div class="label">P2P Trade</div>
-      <div class="value">Encrypted Match</div>
+      <div class="label">P2P-Trade</div>
+      <div class="value">Verschlüsselter Match</div>
     </div>
     <div class="flow-arrow">&#10141;</div>
     <div class="flow-step">
       <div class="icon">✅</div>
-      <div class="label">Settlement</div>
-      <div class="value">Verified PSBT Release</div>
+      <div class="label">Abwicklung</div>
+      <div class="value">Geprüfte PSBT-Freigabe</div>
     </div>
   </div>
 
@@ -242,7 +242,7 @@
     <!-- Section: Core -->
     <div class="section-label">
       <span class="section-tag core">Core</span>
-      <span class="section-desc">Orchestration</span>
+      <span class="section-desc">Orchestrierung</span>
       <span class="section-line"></span>
     </div>
 
@@ -251,27 +251,27 @@
         <div class="card-icon">⚙️</div>
         <div>
           <div class="card-title">Trading Engine</div>
-          <div class="card-subtitle">Central orchestrator — 30s polling loop</div>
+          <div class="card-subtitle">Zentraler Orchestrator — 30s-Polling-Loop</div>
         </div>
       </div>
       <ul class="feature-list" style="display:grid; grid-template-columns: 1fr 1fr; gap: 0 24px;">
-        <li><span class="dot"></span>Offer lifecycle management (create, fund, match, release)</li>
-        <li><span class="dot"></span>Auto-accept trade requests with PGP-encrypted payment data</li>
-        <li><span class="dot"></span>Contract monitoring with PSBT signing</li>
-        <li><span class="dot"></span>Auto premium reduction via live PATCH (no cancel/refund)</li>
-        <li><span class="dot"></span>Auto-refund: sign &amp; broadcast cancelled escrow PSBTs every 10min</li>
-        <li><span class="dot"></span><b>Auto buy-escrow</b>: configurable premium via /auto, offer sizes derived from the platform CHF cap, per-method (Revolut/Wise) and per-SEPA-bank rotation toggles</li>
+        <li><span class="dot"></span>Verwaltung des Angebots-Lebenszyklus (erstellen, finanzieren, matchen, freigeben)</li>
+        <li><span class="dot"></span>Trade-Anfragen automatisch annehmen, Zahlungsdaten PGP-verschlüsselt</li>
+        <li><span class="dot"></span>Vertragsüberwachung mit PSBT-Signierung</li>
+        <li><span class="dot"></span>Automatische Premium-Senkung per Live-PATCH (kein Cancel/Refund)</li>
+        <li><span class="dot"></span>Auto-Refund: stornierte Escrow-PSBTs alle 10 min signieren &amp; broadcasten</li>
+        <li><span class="dot"></span><b>Auto-Buy-Escrow</b>: Premium per /auto einstellbar, Angebotsgrössen aus dem CHF-Limit der Plattform, Rotation pro Methode (Revolut/Wise) und pro SEPA-Bank schaltbar</li>
 
-        <li><span class="dot"></span>Daily summary, low balance alerts, profit tracking</li>
-        <li><span class="dot"></span>Multi-source spot price with fallback</li>
-        <li><span class="dot"></span>Thread-safe concurrent access (engine + Telegram threads)</li>
+        <li><span class="dot"></span>Tageszusammenfassung, Warnung bei tiefem Saldo, Gewinn-Tracking</li>
+        <li><span class="dot"></span>Spotpreis aus mehreren Quellen mit Fallback</li>
+        <li><span class="dot"></span>Threadsicherer paralleler Zugriff (Engine- + Telegram-Threads)</li>
       </ul>
     </div>
 
     <!-- Section: Backend - Integrations -->
     <div class="section-label">
       <span class="section-tag backend">Backend</span>
-      <span class="section-desc">External Integrations</span>
+      <span class="section-desc">Externe Integrationen</span>
       <span class="section-line"></span>
     </div>
 
@@ -279,16 +279,16 @@
       <div class="card-header">
         <div class="card-icon">🏦</div>
         <div>
-          <div class="card-title">Exchange Connector</div>
-          <div class="card-subtitle">CHF/EUR/USD/USDT spot market buy + withdrawal</div>
+          <div class="card-title">Börsen-Connector</div>
+          <div class="card-subtitle">CHF/EUR/USD/USDT-Spotkauf + Auszahlung</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span>Market buy with <code style="color:#60a5fa">viqc</code> (volume in quote currency)</li>
-        <li><span class="dot"></span>Dual fill detection: QueryOrders + balance change fallback</li>
-        <li><span class="dot"></span>BTC withdrawal to whitelisted hot wallet address</li>
-        <li><span class="dot"></span>Trade history and ledger queries</li>
-        <li><span class="dot"></span>HMAC-SHA512 signed API authentication</li>
+        <li><span class="dot"></span>Marktkauf mit <code style="color:#60a5fa">viqc</code> (Volumen in Quote-Währung)</li>
+        <li><span class="dot"></span>Doppelte Fill-Erkennung: QueryOrders + Saldoänderung als Fallback</li>
+        <li><span class="dot"></span>BTC-Auszahlung an freigegebene Hot-Wallet-Adresse</li>
+        <li><span class="dot"></span>Abfragen von Trade-Historie und Ledger</li>
+        <li><span class="dot"></span>API-Authentifizierung mit HMAC-SHA512-Signatur</li>
       </ul>
     </div>
 
@@ -296,24 +296,24 @@
       <div class="card-header">
         <div class="card-icon">🤝</div>
         <div>
-          <div class="card-title">P2P Platform</div>
-          <div class="card-subtitle">Peer-to-peer marketplace integration</div>
+          <div class="card-title">P2P-Plattform</div>
+          <div class="card-subtitle">Anbindung an den P2P-Marktplatz</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span>Secp256k1 authentication with auto-refresh (~50min)</li>
-        <li><span class="dot"></span>Sell offers with per-method SHA256 payment hashes</li>
-        <li><span class="dot"></span>Trade request detection via v069 (v1 often empty)</li>
-        <li><span class="dot"></span>AES symmetric key exchange + PGP encryption</li>
-        <li><span class="dot"></span>Live premium PATCH on active offers</li>
-        <li><span class="dot"></span>Market scanner: competitor + buyer demand analysis</li>
+        <li><span class="dot"></span>Secp256k1-Authentifizierung mit automatischer Erneuerung (~50 min)</li>
+        <li><span class="dot"></span>Verkaufsangebote mit SHA256-Zahlungshashes pro Methode</li>
+        <li><span class="dot"></span>Erkennung von Trade-Anfragen über v069 (v1 oft leer)</li>
+        <li><span class="dot"></span>Symmetrischer AES-Schlüsselaustausch + PGP-Verschlüsselung</li>
+        <li><span class="dot"></span>Live-Premium-PATCH auf aktiven Angeboten</li>
+        <li><span class="dot"></span>Markt-Scanner: Analyse von Konkurrenz und Käufernachfrage</li>
       </ul>
     </div>
 
     <!-- Section: Backend - Bitcoin -->
     <div class="section-label">
       <span class="section-tag backend">Backend</span>
-      <span class="section-desc">Bitcoin Protocol</span>
+      <span class="section-desc">Bitcoin-Protokoll</span>
       <span class="section-line"></span>
     </div>
 
@@ -321,17 +321,17 @@
       <div class="card-header">
         <div class="card-icon">📡</div>
         <div>
-          <div class="card-title">Hot Wallet &amp; TX Builder</div>
-          <div class="card-subtitle">Raw Bitcoin TX construction &amp; UTXO management</div>
+          <div class="card-title">Hot Wallet &amp; TX-Builder</div>
+          <div class="card-subtitle">Bau roher Bitcoin-TX &amp; UTXO-Verwaltung — nicht im Repo veröffentlicht</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span>BIP32/39/84 HD keys: <code style="color:#22d3ee">m/84'/0'/0'/0/i</code></li>
+        <li><span class="dot"></span>BIP32/39/84-HD-Schlüssel: <code style="color:#22d3ee">m/84'/0'/0'/0/i</code></li>
         <li><span class="dot"></span>Native SegWit P2WPKH → P2WSH / P2TR (bech32m)</li>
-        <li><span class="dot"></span>UTXO selection with dynamic fee estimation</li>
-        <li><span class="dot"></span>BIP143 witness signing (ECDSA)</li>
-        <li><span class="dot"></span>Dust handling and change outputs</li>
-        <li><span class="dot"></span>Mempool broadcast via public API</li>
+        <li><span class="dot"></span>UTXO-Auswahl mit dynamischer Gebührenschätzung</li>
+        <li><span class="dot"></span>BIP143-Witness-Signierung (ECDSA)</li>
+        <li><span class="dot"></span>Dust-Behandlung und Wechselgeld-Outputs</li>
+        <li><span class="dot"></span>Mempool-Broadcast über öffentliche API</li>
       </ul>
     </div>
 
@@ -339,25 +339,23 @@
       <div class="card-header">
         <div class="card-icon">✍️</div>
         <div>
-          <div class="card-title">Escrow &amp; PSBT Signing</div>
-          <div class="card-subtitle">Taproot &amp; legacy escrow release, key derivation</div>
+          <div class="card-title">Escrow &amp; PSBT-Signierung</div>
+          <div class="card-subtitle">Taproot- &amp; Legacy-Escrow-Freigabe, Schlüsselableitung</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span>Per-offer escrow keys: <code style="color:#f87171">m/84'/0'/0'/{id}'</code></li>
-        <li><span class="dot"></span><b>Single-sig taproot escrow</b> (<code style="color:#f87171">escrowVersion 2</code>): BIP341 key path, BIP340 schnorr, bech32m</li>
-        <li><span class="dot"></span>Escrow address re-derived locally and rejected on mismatch</li>
-        <li><span class="dot"></span>Release PSBT verified against funding TX + buyer payout before signing</li>
-        <li><span class="dot"></span>Legacy 2-of-2 P2WSH path kept: BIP143 (ALL + SINGLE|ANYONECANPAY)</li>
-        <li><span class="dot"></span>Auto-detect key from witness script inspection</li>
-        <li><span class="dot"></span>TX finalization and batch release support (legacy only)</li>
-      </ul>
+        <li><span class="dot"></span>Escrow-Schlüssel pro Angebot: <code style="color:#f87171">m/84'/0'/0'/{id}'</code></li>
+        <li><span class="dot"></span><b>Single-Sig-Taproot-Escrow</b> (<code style="color:#f87171">escrowVersion 2</code>): BIP341-Key-Path, BIP340-Schnorr, bech32m</li>
+        <li><span class="dot"></span>Escrow-Adresse wird lokal nachgerechnet und bei Abweichung abgelehnt</li>
+        <li><span class="dot"></span>Release-PSBT wird vor dem Signieren gegen Funding-TX + Auszahlung an Käufer geprüft</li>
+        <li><span class="dot"></span>Legacy-2-of-2-P2WSH-Pfad bleibt erhalten: BIP143 (ALL + SINGLE|ANYONECANPAY)</li>
+                      </ul>
     </div>
 
     <!-- Section: Backend - Data & Pricing -->
     <div class="section-label">
       <span class="section-tag backend">Backend</span>
-      <span class="section-desc">Data &amp; Pricing</span>
+      <span class="section-desc">Daten &amp; Preisgestaltung</span>
       <span class="section-line"></span>
     </div>
 
@@ -365,16 +363,16 @@
       <div class="card-header">
         <div class="card-icon">📊</div>
         <div>
-          <div class="card-title">Premium Management</div>
-          <div class="card-subtitle">Dynamic pricing + auto-reduction</div>
+          <div class="card-title">Premium-Verwaltung</div>
+          <div class="card-subtitle">Dynamische Preise + automatische Senkung</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span>Market-based premium calculation (undercut strategy)</li>
-        <li><span class="dot"></span>Auto-reduction: -0.5% every 24h without match</li>
-        <li><span class="dot"></span>Live PATCH on funded offers (no on-chain refund needed)</li>
-        <li><span class="dot"></span>Floor enforcement (4%) and ceiling cap (10%)</li>
-        <li><span class="dot"></span>Telegram notification on each reduction</li>
+        <li><span class="dot"></span>Marktbasierte Premium-Berechnung (Unterbietungsstrategie)</li>
+        <li><span class="dot"></span>Automatische Senkung: −0,5 % alle 24 h ohne Match</li>
+        <li><span class="dot"></span>Live-PATCH auf finanzierten Angeboten (kein On-Chain-Refund nötig)</li>
+        <li><span class="dot"></span>Einstellbare Unter- und Obergrenze (Plattform erlaubt max. +6 %)</li>
+        <li><span class="dot"></span>Telegram-Benachrichtigung bei jeder Senkung</li>
       </ul>
     </div>
 
@@ -382,23 +380,23 @@
       <div class="card-header">
         <div class="card-icon">🗄️</div>
         <div>
-          <div class="card-title">Trade Database</div>
-          <div class="card-subtitle">SQLite with WAL mode</div>
+          <div class="card-title">Trade-Datenbank</div>
+          <div class="card-subtitle">SQLite im WAL-Modus</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span>Trade logging with full fee breakdown</li>
-        <li><span class="dot"></span>Buy data preservation across escrow lifecycle</li>
-        <li><span class="dot"></span>Event tracking (lifecycle audit trail)</li>
-        <li><span class="dot"></span>Daily/monthly profit analytics</li>
-        <li><span class="dot"></span>Platform breakdown reports</li>
+        <li><span class="dot"></span>Trade-Protokoll mit vollständiger Gebührenaufschlüsselung</li>
+        <li><span class="dot"></span>Kaufdaten bleiben über den ganzen Escrow-Lebenszyklus erhalten</li>
+        <li><span class="dot"></span>Event-Tracking (Audit-Trail des Lebenszyklus)</li>
+        <li><span class="dot"></span>Gewinnauswertung pro Tag/Monat</li>
+        <li><span class="dot"></span>Berichte nach Plattform</li>
       </ul>
     </div>
 
     <!-- Section: Frontend -->
     <div class="section-label">
       <span class="section-tag frontend">Frontend</span>
-      <span class="section-desc">User Interfaces</span>
+      <span class="section-desc">Benutzeroberflächen</span>
       <span class="section-line"></span>
     </div>
 
@@ -407,21 +405,19 @@
         <div class="card-icon">💬</div>
         <div>
           <div class="card-title">Telegram Bot</div>
-          <div class="card-subtitle">Remote control &amp; monitoring</div>
+          <div class="card-subtitle">Fernsteuerung &amp; Überwachung</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Full cycle: EUR buy or BTC withdraw → Offer → Escrow</li>
-        <li><span class="dot"></span><code style="color:#60a5fa">/auto [premium%]</code> — Set premium, enable/disable, toggle Revolut/Wise & each SEPA bank in the rotation</li>
-        <li><span class="dot"></span><code style="color:#60a5fa">/rotation</code> — Next 7 SEPA accounts + last 7 used (account · sats · fiat)</li>
-        <li><span class="dot"></span><code style="color:#60a5fa">/profit</code> — Run-rate vs. realized profit (day/week/month/year + 7/30-day avg)</li>
-        <li><span class="dot"></span><code style="color:#60a5fa">/deposits</code> — Last 5 fiat deposits (amount, method, status)</li>
-        <li><span class="dot"></span><code style="color:#60a5fa">/market</code> — Competitive analysis + premium recommendation</li>
-        <li><span class="dot"></span><code style="color:#60a5fa">/status /balance /offers /contracts /wallet</code> — Monitoring</li>
-        <li><span class="dot"></span><code style="color:#60a5fa">/cancel /pause /resume /reload</code> — Control with inline keyboards</li>
-        <li><span class="dot"></span>Background UTXO polling for escrow funding</li>
-        <li><span class="dot"></span>Persistent pending fundings (survives restart)</li>
-        <li><span class="dot"></span>Telegram notifications for every auto buy-escrow (offer ID, premium, sats, BTC cost)</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/buy_escrow</code> — Ganzer Ablauf: BTC kaufen → Angebot erstellen → Escrow einzahlen</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/auto [premium%]</code> — Premium setzen, ein-/ausschalten, Revolut/Wise & jede SEPA-Bank in der Rotation schalten</li>
+                <li><span class="dot"></span><code style="color:#60a5fa">/profit</code> — Hochrechnung vs. realisierter Gewinn (Tag/Woche/Monat/Jahr + 7/30-Tage-Schnitt)</li>
+                <li><span class="dot"></span><code style="color:#60a5fa">/market</code> — Wettbewerbsanalyse + Premium-Empfehlung</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/status /balance /offers /contracts /wallet</code> — Überwachung</li>
+        <li><span class="dot"></span><code style="color:#60a5fa">/cancel /pause /resume /reload</code> — Steuerung mit Inline-Keyboards</li>
+        <li><span class="dot"></span>UTXO-Polling im Hintergrund für das Escrow-Funding</li>
+        <li><span class="dot"></span>Ausstehende Fundings werden gespeichert (überstehen Neustart)</li>
+        <li><span class="dot"></span>Telegram-Benachrichtigung bei jedem Auto-Buy-Escrow (Angebots-ID, Premium, Sats, BTC-Kosten)</li>
       </ul>
     </div>
 
@@ -429,15 +425,15 @@
       <div class="card-header">
         <div class="card-icon">📈</div>
         <div>
-          <div class="card-title">Web Dashboard</div>
-          <div class="card-subtitle">Flask — HTTPS + Basic Auth</div>
+          <div class="card-title">Web-Dashboard</div>
+          <div class="card-subtitle">Flask — HTTPS + Passwortschutz (Basic Auth)</div>
         </div>
       </div>
       <ul class="feature-list">
-        <li><span class="dot"></span>Real-time status overview</li>
-        <li><span class="dot"></span>Trade history with filtering</li>
-        <li><span class="dot"></span>Balance and P&amp;L charts</li>
-        <li><span class="dot"></span>Market premium landscape</li>
+        <li><span class="dot"></span>Statusübersicht in Echtzeit</li>
+        <li><span class="dot"></span>Trade-Historie mit Filtern</li>
+        <li><span class="dot"></span>Saldo- und P&amp;L-Diagramme</li>
+        <li><span class="dot"></span>Premium-Übersicht des Markts</li>
       </ul>
     </div>
 
@@ -445,12 +441,12 @@
 
   <!-- ── PAYMENT METHODS ── -->
   <div class="lifecycle">
-    <h3>Payment Methods</h3>
+    <h3>Zahlungsmethoden</h3>
     <div class="payment-grid">
       <div class="payment-item">
         <div class="p-name">Twint</div>
         <div class="p-currencies">CHF</div>
-        <div class="p-hash">sha256(phone)</div>
+        <div class="p-hash">sha256(Telefon)</div>
       </div>
       <div class="payment-item">
         <div class="p-name">SEPA</div>
@@ -475,74 +471,74 @@
       <div class="payment-item">
         <div class="p-name">Skrill</div>
         <div class="p-currencies">CHF · EUR · USD</div>
-        <div class="p-hash">sha256(email)</div>
+        <div class="p-hash">sha256(E-Mail)</div>
       </div>
       <div class="payment-item">
         <div class="p-name">N26</div>
         <div class="p-currencies">EUR</div>
-        <div class="p-hash">sha256(phone)</div>
+        <div class="p-hash">sha256(Telefon)</div>
       </div>
       <div class="payment-item">
         <div class="p-name">Paysera</div>
         <div class="p-currencies">EUR</div>
-        <div class="p-hash">sha256(phone)</div>
+        <div class="p-hash">sha256(Telefon)</div>
       </div>
       <div class="payment-item">
         <div class="p-name">USDT (Solana)</div>
         <div class="p-currencies">USDT</div>
-        <div class="p-hash">sha256(address)</div>
+        <div class="p-hash">sha256(Adresse)</div>
       </div>
       <div class="payment-item">
         <div class="p-name">USDT (Arbitrum)</div>
         <div class="p-currencies">USDT</div>
-        <div class="p-hash">sha256(address)</div>
+        <div class="p-hash">sha256(Adresse)</div>
       </div>
       <div class="payment-item">
         <div class="p-name">USDT (Ethereum)</div>
         <div class="p-currencies">USDT</div>
-        <div class="p-hash">sha256(address)</div>
+        <div class="p-hash">sha256(Adresse)</div>
       </div>
     </div>
   </div>
 
   <!-- ── TRADE LIFECYCLE ── -->
   <div class="lifecycle">
-    <h3>Trade Lifecycle</h3>
+    <h3>Trade-Lebenszyklus</h3>
     <div class="pipeline">
       <div class="pipe-step">
         <div class="pipe-num">1</div>
         <div class="pipe-label">Telegram</div>
-        <div class="pipe-detail">/buy_escrow 200<br><small style="opacity:.7">CHF/EUR/USD/BTC</small></div>
+        <div class="pipe-detail">/buy_escrow 200<br><small style="opacity:.7">oder Auto-Modus</small></div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">2</div>
-        <div class="pipe-label">Exchange Buy</div>
-        <div class="pipe-detail">Market order<br><small style="opacity:.7">(skip if BTC)</small></div>
+        <div class="pipe-label">Börsenkauf</div>
+        <div class="pipe-detail">Market-Order<br><small style="opacity:.7">(entfällt bei BTC)</small></div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">3</div>
-        <div class="pipe-label">Withdraw</div>
+        <div class="pipe-label">Auszahlung</div>
         <div class="pipe-detail">→ Hot Wallet</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">4</div>
-        <div class="pipe-label">Create Offer</div>
-        <div class="pipe-detail">P2P + hashes</div>
+        <div class="pipe-label">Angebot erstellen</div>
+        <div class="pipe-detail">P2P + Hashes</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">5</div>
-        <div class="pipe-label">Derive Key</div>
+        <div class="pipe-label">Schlüssel ableiten</div>
         <div class="pipe-detail">m/84'/.../id'</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">6</div>
-        <div class="pipe-label">Fund Escrow</div>
-        <div class="pipe-detail">SegWit TX</div>
+        <div class="pipe-label">Escrow finanzieren</div>
+        <div class="pipe-detail">SegWit-TX</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">7</div>
-        <div class="pipe-label">Wait / Reduce</div>
-        <div class="pipe-detail">PATCH -0.5%/24h</div>
+        <div class="pipe-label">Warten / Senken</div>
+        <div class="pipe-detail">PATCH −0,5 %/24 h</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">8</div>
@@ -551,55 +547,55 @@
       </div>
       <div class="pipe-step">
         <div class="pipe-num">9</div>
-        <div class="pipe-label">Payment</div>
-        <div class="pipe-detail">Fiat received</div>
+        <div class="pipe-label">Zahlung</div>
+        <div class="pipe-detail">von mir geprüft</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">10</div>
-        <div class="pipe-label">Sign PSBT</div>
-        <div class="pipe-detail">2-of-2 release</div>
+        <div class="pipe-label">PSBT signieren</div>
+        <div class="pipe-detail">Taproot / 2-of-2</div>
       </div>
       <div class="pipe-step">
         <div class="pipe-num">11</div>
-        <div class="pipe-label">Settle</div>
-        <div class="pipe-detail">On-chain</div>
+        <div class="pipe-label">Abwicklung</div>
+        <div class="pipe-detail">On-Chain</div>
       </div>
     </div>
   </div>
 
   <!-- ── SECURITY ── -->
   <div class="lifecycle" style="margin-bottom: 24px;">
-    <h3>Security Model</h3>
+    <h3>Sicherheitsmodell</h3>
     <div class="sec-grid">
       <div class="sec-item">
         <div class="s-icon">🔏</div>
-        <div class="s-label">Exchange API</div>
-        <div class="s-desc">HMAC-SHA512 signed requests, nonce replay protection</div>
+        <div class="s-label">Börsen-API</div>
+        <div class="s-desc">Mit HMAC-SHA512 signierte Requests, Nonce gegen Replay</div>
       </div>
       <div class="sec-item">
         <div class="s-icon">🪪</div>
-        <div class="s-label">Platform Auth</div>
-        <div class="s-desc">Secp256k1 ECDSA signature, auto-refresh every 50min</div>
+        <div class="s-label">Plattform-Auth</div>
+        <div class="s-desc">Secp256k1-ECDSA-Signatur, automatische Erneuerung alle 50 min</div>
       </div>
       <div class="sec-item">
         <div class="s-icon">🔑</div>
-        <div class="s-label">Escrow Keys</div>
-        <div class="s-desc">Per-offer HD-derived keys (BIP32 hardened children)</div>
+        <div class="s-label">Escrow-Schlüssel</div>
+        <div class="s-desc">HD-abgeleitete Schlüssel pro Angebot (BIP32, hardened)</div>
       </div>
       <div class="sec-item">
         <div class="s-icon">🔐</div>
-        <div class="s-label">Payment Data</div>
-        <div class="s-desc">AES-256 symmetric key encrypted with buyer's PGP key</div>
+        <div class="s-label">Zahlungsdaten</div>
+        <div class="s-desc">Symmetrischer AES-256-Schlüssel, verschlüsselt mit dem PGP-Key des Käufers</div>
       </div>
       <div class="sec-item">
         <div class="s-icon">🛡️</div>
-        <div class="s-label">Escrow Safety</div>
-        <div class="s-desc">2-of-2 multisig, double-funding prevention</div>
+        <div class="s-label">Escrow-Sicherheit</div>
+        <div class="s-desc">Adresse und Release-PSBT lokal geprüft, Schutz vor Doppel-Funding</div>
       </div>
       <div class="sec-item">
         <div class="s-icon">📡</div>
         <div class="s-label">Telegram</div>
-        <div class="s-desc">Chat ID verification, flood control handling</div>
+        <div class="s-desc">Prüfung der Chat-ID, Umgang mit Flood-Control</div>
       </div>
     </div>
   </div>
@@ -607,11 +603,11 @@
   <!-- ── TECH STACK ── -->
   <div class="tech-grid">
     <div class="tech-item">
-      <div class="t-label">Language</div>
+      <div class="t-label">Sprache</div>
       <div class="t-value">Python 3.12</div>
     </div>
     <div class="tech-item">
-      <div class="t-label">Cryptography</div>
+      <div class="t-label">Kryptografie</div>
       <div class="t-value">secp256k1 · PGP · AES</div>
     </div>
     <div class="tech-item">
@@ -619,11 +615,11 @@
       <div class="t-value">Raw TX · BIP32/84/143 · PSBT</div>
     </div>
     <div class="tech-item">
-      <div class="t-label">Database</div>
+      <div class="t-label">Datenbank</div>
       <div class="t-value">SQLite (WAL)</div>
     </div>
     <div class="tech-item">
-      <div class="t-label">Exchange</div>
+      <div class="t-label">Börse</div>
       <div class="t-value">REST API (HMAC-SHA512)</div>
     </div>
     <div class="tech-item">
@@ -631,7 +627,7 @@
       <div class="t-value">P2P REST API</div>
     </div>
     <div class="tech-item">
-      <div class="t-label">Notifications</div>
+      <div class="t-label">Benachrichtigungen</div>
       <div class="t-value">Telegram Bot API</div>
     </div>
     <div class="tech-item">
