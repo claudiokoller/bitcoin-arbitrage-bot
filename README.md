@@ -17,7 +17,7 @@ typischerweise ein paar Prozent. Der Bot nutzt diese Differenz.
 Der Gewinn ist der Aufpreis abzüglich Gebühren – Börse, Auszahlung,
 Blockchain-Transaktion und Plattform.
 
-## Was der Bot macht
+## Was es macht
 
 1. **Kaufen** – Marktorder auf Kraken, Auszahlung der BTC in eine eigene Wallet.
 2. **Anbieten** – Verkaufsangebot auf Peach mit Aufpreis (die Plattform erlaubt
@@ -66,8 +66,7 @@ flowchart LR
     TG(["Telegram"]) <--> P
 ```
 
-Mehr Details — Trade-Lebenszyklus, Sicherheitsmodell, Komponenten:
-[docs/architecture.md](docs/architecture.md)
+Mehr Details: [docs/architecture.md](docs/architecture.md)
 
 Zusätzlich gibt es eine
 [interaktive Version des Diagramms](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html).
