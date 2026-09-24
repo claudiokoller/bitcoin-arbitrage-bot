@@ -69,7 +69,7 @@ flowchart LR
 Mehr Details: [docs/architecture.md](docs/architecture.md)
 
 Zusätzlich gibt es eine
-[interaktive Version des Diagramms](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html).
+[Version des Diagramms](https://claudiokoller.github.io/bitcoin-arbitrage-bot/architecture-diagram.html).
 
 ## Technisch interessante Teile
 
