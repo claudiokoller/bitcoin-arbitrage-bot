@@ -10,6 +10,14 @@ class BuyResult:
     effective_price: float = 0.0
 
 @dataclass
+class SellResult:
+    order_id: str = ""
+    btc_sold: float = 0.0
+    fiat_received: float = 0.0
+    fee_fiat: float = 0.0
+    effective_price: float = 0.0
+
+@dataclass
 class WithdrawalResult:
     withdrawal_id: str = ""
     btc_amount: float = 0.0

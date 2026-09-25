@@ -324,7 +324,7 @@ class PeachPlatform(PlatformBase):
         return offers
 
     def cancel_offer(self, offer_id):
-        r = self._api_call("POST", f"{self.base_url}/offer/{offer_id}/cancel", timeout=10)
+        self._api_call("POST", f"{self.base_url}/offer/{offer_id}/cancel", timeout=10)
         return True
 
     def update_premium(self, offer_id, new_premium):
@@ -611,8 +611,8 @@ class PeachPlatform(PlatformBase):
             log.error(f"Peach: could not sign PSBT for {contract_id}: {e}")
             raise RuntimeError(f"PSBT signing failed for {contract_id}: {e}") from e
 
-        r = self._api_call("POST", f"{self.base_url}/contract/{contract_id}/payment/confirm",
-                           json=payload, timeout=15)
+        self._api_call("POST", f"{self.base_url}/contract/{contract_id}/payment/confirm",
+                       json=payload, timeout=15)
         try:
             self._api_call("POST", f"{self.base_url}/contract/{contract_id}/rating",
                            json={"rating": 1.0}, timeout=10)

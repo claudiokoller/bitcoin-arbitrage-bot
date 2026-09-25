@@ -112,7 +112,7 @@ Zusätzlich gibt es eine
 ## Setup
 
 ```bash
-pip install requests python-telegram-bot coincurve pgpy flask
+pip install -r requirements.txt
 
 cp config.example.json config.json
 # config.json mit API-Keys, Seed-Phrase und Zahlungsdaten ausfüllen

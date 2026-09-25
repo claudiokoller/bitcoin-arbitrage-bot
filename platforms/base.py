@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from core.models import SellOffer, Match, Contract
 
 class PlatformBase(ABC):
     name = "base"

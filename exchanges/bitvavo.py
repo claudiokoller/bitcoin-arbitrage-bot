@@ -12,7 +12,7 @@ class BitvavoError(Exception):
 class BitvavoExchange(ExchangeBase):
     """Bitvavo (api.bitvavo.com/v2). Chosen 2026-06-29 to replace Binance (SEPA-Stop):
     network-based BTC withdrawal fee (~1-3 EUR, not a flat 0.0005 BTC), 0.25% taker,
-    free SEPA, CH in SEPA zone. Same interface as BinanceExchange.
+    free SEPA, CH in SEPA zone. Implements the ExchangeBase interface.
 
     Auth: HMAC-SHA256 over (timestamp + method + '/v2' + endpoint[+query] + body).
     Market-Buy is sized directly in EUR via amountQuote.

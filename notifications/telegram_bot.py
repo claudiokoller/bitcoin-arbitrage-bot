@@ -1,5 +1,4 @@
 import asyncio, json, logging, os, threading, time
-from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from core.models import OfferStatus
@@ -51,7 +50,7 @@ class TelegramNotifier:
                          "sepa": "SEPA", "instantSepa": "SEPA Instant",
                          "skrill": "Skrill", "n26": "N26", "paysera": "Paysera"}
         lbl = method_labels.get(method, method or "?")
-        lines = [f"<b>💰 Zahlung gemeldet — bitte prüfen</b>",
+        lines = ["<b>💰 Zahlung gemeldet — bitte prüfen</b>",
                  f"Contract: <code>{cid[:20]}</code>"]
         if fiat_amount:
             lines.append(f"Betrag: <b>{fiat_amount:.2f} {currency or ''}</b>".rstrip())
@@ -271,6 +270,7 @@ class TelegramBot:
                 fiat = s.get('fiat_balance', 0)
                 if not btc_shown:
                     try:
+                        from core.engine import SpotPriceProvider
                         chf_spot = await loop.run_in_executor(None, SpotPriceProvider.get_spot_chf)
                         btc_chf = btc * chf_spot
                         lines.append(f"<b>BTC (Kraken)</b>: {btc:.8f} BTC ({int(btc * 1e8):,} sats) ≈ {btc_chf:,.2f} CHF")
@@ -432,9 +432,6 @@ class TelegramBot:
             n_s = len(sells_all); n_b = len(buys_all)
             n_sf = len(sells_focus); n_bf = len(buys_focus)
 
-            # Premium distribution in focus range
-            prem_buckets = Counter(int(p) for p in premiums_focus) if premiums_focus else Counter()
-
             # Amount buckets
             ranges = [("&lt;100", 0, 100), ("100–200", 100, 200), ("200–300", 200, 300), ("300–400", 300, 400), ("400–600", 400, 600), ("600+", 600, 9999)]
             def in_range(chf, lo, hi): return lo <= chf < hi
@@ -551,10 +548,10 @@ class TelegramBot:
 
             text += (
                 f"<b>Prämien ({MY_LO}–{MY_HI} CHF):</b>\n" + "\n".join(plines) + "\n\n"
-                f"<b>Nachfrage (S=Seller B=Käufer):</b>\n" + "\n".join(clines) + "\n\n"
+                "<b>Nachfrage (S=Seller B=Käufer):</b>\n" + "\n".join(clines) + "\n\n"
             )
             if mlines:
-                text += f"<b>Zahlungsmethoden:</b>\n" + "\n".join(mlines) + "\n\n"
+                text += "<b>Zahlungsmethoden:</b>\n" + "\n".join(mlines) + "\n\n"
             text += (
                 f"<b>Empfehlung:</b>\n"
                 f"  Prämie: <b>{best_prem:+.1f}%</b> — {gap_reason}\n"
@@ -1509,7 +1506,7 @@ class TelegramBot:
                     if c.payment_method:
                         lines.append(f"  Methode: {c.payment_method}")
                     if status_label == "payment_received":
-                        lines.append(f"  → In Peach App bestätigen")
+                        lines.append("  → In Peach App bestätigen")
             except Exception as e:
                 lines.append(f"<b>{n}</b>: {e}")
         if not found:
@@ -1569,7 +1566,7 @@ class TelegramBot:
             }
             buttons = [[InlineKeyboardButton(f"{c}", callback_data=f"sell_{c.lower()}") for c in currencies]]
             await update.message.reply_text(
-                f"<b>Verkaufen — Währung wählen:</b>",
+                "<b>Verkaufen — Währung wählen:</b>",
                 parse_mode="HTML", reply_markup=InlineKeyboardMarkup(buttons))
             return
 

@@ -21,11 +21,9 @@ import json, logging, os, threading, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import requests as _requests
-from core.models import SellOffer, OfferStatus, Platform
+from core.models import OfferStatus
 from core.trade_logger import TradeLogger
 from core.pricing import DynamicPricer
-from exchanges.base import ExchangeBase
-from platforms.base import PlatformBase
 log = logging.getLogger("bot.engine")
 
 # Transient errors worth retrying (network issues, server overload)
@@ -67,7 +65,7 @@ def _mempool_get(url, timeout=10, retries=3):
             return r.json()
         except Exception:
             pass
-    raise last_err or Exception(f"mempool.space + blockstream.info request failed")
+    raise last_err or Exception("mempool.space + blockstream.info request failed")
 
 class SpotPriceProvider:
     _cache = {}  # {currency: (price, timestamp)} — fallback if all sources fail
@@ -198,7 +196,6 @@ class TradingEngine:
         self._last_yearly_summary = None
         self._pending_refunds = {}  # {offer_id: {escrow_addr, amount_sats, created}}
         self._last_refund_check = None
-        self._premium_reductions = {}  # {offer_id: original_premium} for tracking reductions
         self._last_stale_check = None
         self._last_consolidation_check = None
         self._last_auto_buy_check = 0
@@ -1036,7 +1033,6 @@ offers are covered too.
             funding_fee = 750 / 1e8 * spot_buy if spot_buy else 0
 
         # Peach 2% fee is paid by the buyer, not the seller — excluded from our cost
-        pfee = 0
         # All fees in CHF (base accounting currency)
         spot_chf = None
         try: spot_chf = SpotPriceProvider.get_spot("CHF")

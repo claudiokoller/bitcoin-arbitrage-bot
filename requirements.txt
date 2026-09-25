@@ -1,0 +1,6 @@
+# Getestet mit: coincurve 21.0, Flask 3.1, PGPy 0.6, python-telegram-bot 22.8, requests 2.34
+coincurve>=18        # Schnorr-Signaturen (sign_schnorr, PublicKeyXOnly) für den Taproot-Escrow
+flask>=2.2           # Dashboard
+pgpy>=0.6            # PGP für die verschlüsselten Zahlungsdaten bei Peach
+python-telegram-bot>=20  # asynchrone API (Application, ContextTypes)
+requests>=2.28

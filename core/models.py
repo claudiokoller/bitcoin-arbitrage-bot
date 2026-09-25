@@ -1,6 +1,5 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
 class OfferStatus(Enum):
     CREATED = "created"
@@ -15,14 +14,6 @@ class OfferStatus(Enum):
 
 class Platform(Enum):
     PEACH = "peach"
-    ROBOSATS = "robosats"
-    BISQ = "bisq"
-
-class Exchange(Enum):
-    KRAKEN = "kraken"
-    BINANCE = "binance"
-    COINBASE = "coinbase"
-    BITSTAMP = "bitstamp"
 
 @dataclass
 class SellOffer:
@@ -62,23 +53,3 @@ class Contract:
     payment_method: str = ""
     buyer_id: str = ""
     raw_data: dict = field(default_factory=dict)
-
-@dataclass
-class TradeResult:
-    id: str = ""
-    platform: Platform = Platform.PEACH
-    exchange: Exchange = Exchange.KRAKEN
-    timestamp: str = ""
-    amount_sats: int = 0
-    buy_price_fiat: float = 0.0
-    sell_price_fiat: float = 0.0
-    currency: str = "EUR"
-    premium_pct: float = 0.0
-    exchange_fee: float = 0.0
-    platform_fee: float = 0.0
-    network_fee: float = 0.0
-    net_profit: float = 0.0
-    payment_method: str = ""
-    contract_id: str = ""
-    def calculate_profit(self):
-        self.net_profit = (self.sell_price_fiat - self.buy_price_fiat - self.exchange_fee - self.platform_fee - self.network_fee)

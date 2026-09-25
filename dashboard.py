@@ -2,8 +2,7 @@
 """Trading Bot v3.0 - Arbitrage Dashboard"""
 
 import sqlite3, json, logging, os, requests, subprocess, hmac
-from datetime import datetime, timedelta
-from flask import send_file
+from datetime import datetime
 
 # ── App Icon ──
 import base64 as _b64
@@ -670,7 +669,7 @@ def api_kraken():
     """Kraken ledger, trades and balance snapshots"""
     result = {"trades": [], "balances": [], "flows": {}, "currencies": {}}
     try:
-        import sys, time as _time
+        import sys
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         from exchanges.kraken import KrakenExchange
         exchanges_cfg = get_config().get('exchanges', {})
