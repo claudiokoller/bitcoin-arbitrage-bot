@@ -328,12 +328,23 @@ class PeachPlatform(PlatformBase):
         return True
 
     def update_premium(self, offer_id, new_premium):
-        """Update premium on an active (online) offer. Returns True on success."""
+        """Update premium on an active (online) offer. Returns True on success.
+
+        Peach answers 401 for offers that are already in a trade or finished. That is
+        expected: right after a restart the stale check has not yet learned which offers
+        are terminal and tries each recent one once. Logged at DEBUG so it doesn't bury
+        real warnings."""
         try:
             self._api_call("PATCH", f"{self.base_url}/offer/{offer_id}",
-                json={"premium": new_premium})
+                quiet_statuses=(401,), json={"premium": new_premium})
             log.info(f"Peach: updated offer {offer_id} premium to {new_premium}%")
             return True
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 401:
+                log.debug(f"Peach: offer {offer_id} not patchable (in a trade or finished)")
+            else:
+                log.warning(f"Peach: PATCH offer {offer_id} premium: {e}")
+            return False
         except Exception as e:
             log.warning(f"Peach: PATCH offer {offer_id} premium: {e}")
             return False
