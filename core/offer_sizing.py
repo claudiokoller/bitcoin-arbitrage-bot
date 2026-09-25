@@ -14,7 +14,9 @@ So the cap is resolved per cycle: `max_offer_chf` is converted to sats at the
 current BTC/CHF spot (see `resolve_cap_sats`). `cap_fraction` mode then
 expresses the rotation as fractions of that cap and converts to euro at the
 current BTC/EUR spot. The offers stay as large as Peach permits at any price
-while keeping a spread across sizes.
+while keeping a spread across sizes. With `min_offer_chf` the fractions are
+derived instead: an even ladder from just under the cap down to that CHF floor
+(see `resolve_fractions`).
 
 `max_offer_sats` remains as the fallback for a CHF price-feed outage, and as the
 last *known-good* cap: raising `max_offer_chf` to a limit Peach has not actually
@@ -46,6 +48,28 @@ def resolve_cap_sats(auto_cfg, spot_chf=None):
     if cap_chf and spot_chf:
         return int(cap_chf / spot_chf * 1e8)
     return fallback
+
+
+def resolve_fractions(auto_cfg):
+    """The fractions of the cap to size offers at, largest first.
+
+    With `min_offer_chf` set, the ladder runs from just under the cap down to
+    that floor in `size_steps` even steps. The floor is a fixed CHF amount on
+    purpose: expressed as a fraction it would drift upward whenever Peach
+    raises the cap and `max_offer_chf` follows. It takes precedence over
+    `cap_fractions`, which remains for hand-picked spreads.
+    """
+    top = 0.98  # headroom for price movement between sizing and Peach's check
+    cap_chf = auto_cfg.get("max_offer_chf")
+    floor_chf = auto_cfg.get("min_offer_chf")
+    if cap_chf and floor_chf:
+        low = floor_chf / cap_chf
+        steps = max(int(auto_cfg.get("size_steps", 4)), 1)
+        if low >= top or steps == 1:
+            return [top]
+        step = (top - low) / (steps - 1)
+        return [round(top - i * step, 4) for i in range(steps)]
+    return auto_cfg.get("cap_fractions") or [0.98, 0.96, 0.94, 0.92, 0.90, 0.88, 0.86, 0.84]
 
 
 def sats_for_eur(eur, spot_eur, withdraw_fee_sats, min_amount_sats):
@@ -81,7 +105,7 @@ def effective_amounts(auto_cfg, spot_eur, withdraw_fee_sats, min_amount_sats, sp
         return sorted(configured)
 
     cap = resolve_cap_sats(auto_cfg, spot_chf)
-    fractions = auto_cfg.get("cap_fractions") or [0.98, 0.96, 0.94, 0.92, 0.90, 0.88, 0.86, 0.84]
+    fractions = resolve_fractions(auto_cfg)
     floor_eur = auto_cfg.get("min_offer_eur", 0)
 
     out = []
