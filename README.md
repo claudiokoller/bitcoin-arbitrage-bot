@@ -21,12 +21,11 @@ Blockchain-Transaktion und Plattform.
 
 1. **Kaufen** – Marktorder auf Kraken, Auszahlung der BTC in eine eigene Wallet.
 2. **Anbieten** – Verkaufsangebot auf Peach mit Aufpreis (die Plattform erlaubt
-   aktuell höchstens +6 %).
+   seit September 2026 bis +21 %).
 3. **Absichern** – die BTC gehen in ein Escrow, ein Treuhandkonto auf der
    Blockchain, damit der Käufer sicher sein kann, dass die Coins da sind.
 4. **Nachsteuern** – findet ein Angebot nach 24 Stunden keinen Käufer, senkt der
-   Bot den Aufpreis schrittweise. Die Höhe leitet er aus den Angeboten der
-   Konkurrenz ab.
+   Bot den Aufpreis schrittweise bis zu einer Untergrenze.
 5. **Freigeben** – meldet ein Käufer die Zahlung, schickt der Bot eine
    Telegram-Nachricht mit Betrag und Konto. Bestätigt wird von Hand, dann gehen
    die BTC aus dem Escrow an den Käufer.
@@ -85,7 +84,9 @@ Zusätzlich gibt es eine
   bewegen – ein Fehler wäre nicht rückgängig zu machen.
 - **Angebotsgrösse in Franken** ([core/offer_sizing.py](core/offer_sizing.py)):
   Die Plattform begrenzt ein Angebot auf einen CHF-Betrag; der Bot rechnet die
-  Grenze jeden Durchlauf neu in Satoshi um.
+  Grenze jeden Durchlauf neu in Satoshi um. Die Angebote verteilt er in Stufen
+  von knapp unter dieser Grenze bis zu einer festen Untergrenze in Franken,
+  damit gleichzeitige Angebote nicht um dieselben Käufer konkurrieren.
 - **Mehrere Threads**: Hauptschleife und Telegram-Bot laufen parallel auf
   denselben Daten; Locks verhindern, dass sie sich in die Quere kommen.
 - **Verschlüsselte Zahlungsdaten**: Bankdaten gehen nur PGP-verschlüsselt an den

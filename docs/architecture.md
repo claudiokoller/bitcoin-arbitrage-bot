@@ -64,9 +64,17 @@ einen CHF-Betrag. Da der Kurs schwankt, rechnet der Bot die Grenze in jedem
 Durchlauf neu um, statt mit festen Satoshi-Werten zu arbeiten, die bald
 veraltet wären.
 
-**Aufpreis aus dem Markt statt fix.** Der Bot vergleicht die Aufpreise der
-Konkurrenz und schlägt einen eigenen vor. Findet ein Angebot nach 24 Stunden
-keinen Käufer, senkt er ihn schrittweise.
+**Gestaffelte Grössen mit Untergrenze.** Liegen mehrere Angebote fast gleich
+hoch, konkurrieren sie um dieselben Käufer. Der Bot verteilt sie deshalb
+gleichmässig von knapp unter der Grenze bis zu einer festen Untergrenze in
+Franken. Kleine Angebote lohnen sich trotzdem nicht: Jedes wird mit einer
+eigenen Banküberweisung bezahlt, und die Zahl der Überweisungen – nicht das
+Volumen – bestimmt das Risiko, dass eine Bank das Konto schliesst.
+
+**Aufpreis vom Betreiber, nicht vom Algorithmus.** Den Aufpreis legt der
+Betreiber fest; die Aufpreise der Konkurrenz zeigt der Bot nur zur Orientierung.
+Findet ein Angebot nach 24 Stunden keinen Käufer, senkt der Bot ihn
+schrittweise bis zu einer Untergrenze.
 
 **Alles mit Gebühren rechnen.** Jeder Trade wird mit Börsen-, Auszahlungs-,
 Blockchain- und Plattformgebühr erfasst. Der Bruttoaufpreis sagt wenig – erst
