@@ -876,10 +876,26 @@ payment data, and accepts under the configured constraints.
                     except Exception as e:
                         log.error(f"{name}: confirm: {e}")
             elif c.status == OfferStatus.DISPUTE:
-                log.warning(f"{name}: DISPUTE {c.id}")
-                if self.notifier and c.id not in self._notified_contracts:
-                    self.notifier.notify_dispute(c.id)
-                    self._notified_contracts.add(c.id)
+                # The de-dup key must be SEPARATE from the payment-received one. Both used the
+                # bare contract id in `_notified_contracts`, and a dispute always follows a
+                # payment-received for the same contract — so the guard was already satisfied and
+                # the dispute message never went out. One contract sat unnoticed for two days
+                # that way, while the same line was logged 3550 times.
+                _dkey = f"dispute:{c.id}"
+                if _dkey in self._notified_contracts:
+                    log.debug(f"{name}: DISPUTE {c.id} (already reported)")
+                else:
+                    raw = c.raw_data or {}
+                    log.warning(f"{name}: DISPUTE {c.id} — {c.amount_sats} sats, "
+                                f"{c.price_fiat} {c.currency}, {c.payment_method}")
+                    if self.notifier:
+                        _acct = (self._escrow_state.get(str(c.offer_id), {}) or {}).get("sepa_account_name", "")
+                        self.notifier.notify_dispute(c.id, {
+                            "amount_sats": c.amount_sats, "price": c.price_fiat,
+                            "currency": c.currency, "method": c.payment_method,
+                            "account": _acct, "since": raw.get("lastModified", ""),
+                        })
+                    self._notified_contracts.add(_dkey)
             elif c.status == OfferStatus.COMPLETED:
                 with self._escrow_lock:
                     for oid in (c.offer_id, c.id):

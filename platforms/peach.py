@@ -10,6 +10,42 @@ log = logging.getLogger("bot.peach")
 # Peach, which still exists for older contracts.
 ESCROW_VERSION = 2
 
+# Peach answers an accept with HTTP 401 and this body when the BUYER has hit their trading
+# limit. It is not an auth problem and not something our side can fix — the limit is daily, so
+# the same request usually goes through the next day.
+ERR_COUNTERPARTY_LIMIT = "TRADING_LIMIT_OF_COUNTERPARTY_REACHED"
+
+# 401 bodies that really are about our token. Anything else arriving as 401 is a business
+# error, and re-authenticating for it just adds a pointless login per attempt.
+AUTH_ERROR_CODES = {"UNAUTHORIZED", "AUTHENTICATION_FAILED", "TOKEN_EXPIRED", "INVALID_TOKEN"}
+
+
+class PeachBusinessError(Exception):
+    """Peach rejected the request on its merits, not because of our credentials.
+
+    It arrives as HTTP 401 with an `error` body, which the callers used to read as an expired
+    token: one pointless re-login per attempt, and the failure counted toward the budget that
+    drops an offer from polling. Seen so far: the counterparty's trading limit, and the short
+    cooldown right after an accept attempt ("You just accepted a Trade Request...").
+    """
+
+    def __init__(self, code, message=""):
+        self.code = code
+        super().__init__(message or code)
+
+
+class CounterpartyLimitReached(PeachBusinessError):
+    """The buyer hit their trading limit — daily, so retry later rather than giving up."""
+
+
+def _error_code(response):
+    """The `error` field of a Peach error body, or "" when there is none."""
+    try:
+        body = response.json()
+        return body.get("error", "") if isinstance(body, dict) else ""
+    except Exception:
+        return ""
+
 class LRUCache(OrderedDict):
     """Simple LRU cache based on OrderedDict."""
     def __init__(self, maxsize=100):
@@ -143,7 +179,14 @@ class PeachPlatform(PlatformBase):
             # per such 401 caused an auth storm once the match-poll window widened to cover many dead
             # offers. Only re-auth when the token is actually old enough to plausibly be expired;
             # otherwise fast-fail so the caller can skip the dead resource.
-            if time.time() - self._auth_time > 30:
+            #
+            # Peach also returns 401 for plain business errors — TRADING_LIMIT_OF_COUNTERPARTY_REACHED
+            # when the buyer is over their limit. Those were costing one full re-login per attempt,
+            # every attempt, for as long as the buyer stayed over the limit.
+            _code = _error_code(r)
+            if _code and _code not in AUTH_ERROR_CODES:
+                log.debug(f"Peach: 401 {_code} — business error, no re-auth")
+            elif time.time() - self._auth_time > 30:
                 log.info("Peach: 401, re-authenticating...")
                 self.authenticate()
                 r = _do()
@@ -454,7 +497,22 @@ class PeachPlatform(PlatformBase):
                 raise RuntimeError(f"Payment encryption failed — buyer will not receive payment data: {e}") from e
 
         log.info(f"Peach: Accepting trade from {buyer_user_id[:12]}... (offer {offer_id})")
-        r = self._api_call("POST", url, json=payload)
+        try:
+            r = self._api_call("POST", url, json=payload, quiet_statuses=(401,))
+        except requests.HTTPError as e:
+            # Surface the buyer's trading limit as its own error: the generic HTTPError text only
+            # carries "401 Unauthorized", which made the caller treat it as an auth problem and
+            # eventually drop a perfectly healthy offer from polling.
+            _code = _error_code(e.response) if e.response is not None else ""
+            if _code == ERR_COUNTERPARTY_LIMIT:
+                raise CounterpartyLimitReached(
+                    _code, f"buyer {buyer_user_id[:12]} is over their trading limit (offer {offer_id})") from e
+            if (e.response is not None and e.response.status_code == 401
+                    and _code and _code not in AUTH_ERROR_CODES):
+                raise PeachBusinessError(_code, f"accept rejected: {_code}") from e
+            if e.response is not None and e.response.status_code >= 400:
+                log.warning(f"Peach: accept {offer_id} -> {e.response.status_code}: {e.response.text[:300]}")
+            raise
         data = r.json()
         log.info(f"Peach: Trade accepted! Response: {json.dumps(data)[:200]}")
         return data

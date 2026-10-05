@@ -63,8 +63,20 @@ class TelegramNotifier:
         lines.append("Geldeingang prüfen, dann in der Peach-App freigeben.")
         self._send(chr(10).join(lines))
 
-    def notify_dispute(self, cid):
-        self._send(f"<b>DISPUTE!</b> <code>{cid[:16]}</code>")
+    def notify_dispute(self, cid, info=None):
+        """A dispute needs a human in the marketplace app, so the message carries what is at
+        stake — the bare contract id did not read as urgent enough to act on."""
+        lines = [f"⚠️ <b>STREITFALL</b> <code>{cid[:16]}</code>"]
+        if info:
+            if info.get("amount_sats"):
+                lines.append(f"Escrow: <b>{info['amount_sats']:,} sats</b>".replace(",", "'"))
+            if info.get("price"):
+                lines.append(f"Preis: <b>{info['price']} {info.get('currency', '')}</b>")
+            if info.get("method"):
+                lines.append(f"Zahlweg: {info['method']}" + (f" · Konto {info['account']}" if info.get("account") else ""))
+        lines += ["", "In der Peach-App im Vertragschat antworten — "
+                      "unbeantwortet entscheidet Peach ohne deine Seite."]
+        self._send("\n".join(lines))
     def notify_error(self, err):
         self._send(f"<b>Error</b>\n<code>{err[:400]}</code>")
     def notify_low_balance(self, fiat, currency="CHF"):
