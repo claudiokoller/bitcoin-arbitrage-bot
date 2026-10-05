@@ -153,9 +153,12 @@ class TelegramBot:
             sepa_info = {"iban": iban, "beneficiary": ben, "bic": bic}
             # If this account doesn't support SEPA Instant, fall back to named or first instant account
             if not acct.get("instant", True):
+                # Only ever fall back to an ENABLED account — a disabled one is disabled because the
+                # bank is gone, and the offer would publish its IBAN for instantSepa anyway.
                 fallback_name = acct.get("instant_fallback")
-                instant_acct = next((a for a in accounts if fallback_name and a.get("name") == fallback_name), None) \
-                            or next((a for a in accounts if a.get("instant", True)), acct)
+                usable = [a for a in accounts if a.get("enabled", True)]
+                instant_acct = next((a for a in usable if fallback_name and a.get("name") == fallback_name), None) \
+                            or next((a for a in usable if a.get("instant", True)), acct)
                 instant_raw = instant_acct["iban"].replace(" ", "")
             else:
                 instant_raw = iban
