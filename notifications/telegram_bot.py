@@ -1342,12 +1342,23 @@ class TelegramBot:
 
                 if available >= amount_sats + fee_buffer:
                     result = fund_escrow(self.engine.config, escrow_addr, amount_sats)
+                    _bd = None
                     with self.engine._escrow_lock:
                         if offer_id in self.engine.pending_escrows:
                             self.engine.pending_escrows[offer_id]["funded"] = True
                             self.engine.pending_escrows[offer_id]["funded_at"] = __import__('datetime').datetime.now().isoformat()
                             self.engine.pending_escrows[offer_id].pop("funding_in_progress", None)
-                            self.engine.pending_escrows[offer_id].setdefault("buy_data", {})["funding_fee_sats"] = result.get("fee", 0)
+                            _bd = self.engine.pending_escrows[offer_id].setdefault("buy_data", {})
+                            _bd["funding_fee_sats"] = result.get("fee", 0)
+                    # Persist it. The fee lived only in pending_escrows, which is in-memory, so a
+                    # restart between funding and sale booked the trade with a 0.00 mining fee.
+                    # Outside the lock: save_buy_data takes it too and threading.Lock is not
+                    # reentrant.
+                    if _bd is not None:
+                        try:
+                            self.engine.save_buy_data(offer_id, dict(_bd))
+                        except Exception as e:
+                            log.warning(f"save_buy_data {offer_id[:12]}: {e}")
                     self._remove_pending_funding(offer_id)
                     if self.notifier:
                         self.notifier._send(

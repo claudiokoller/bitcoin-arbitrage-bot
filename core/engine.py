@@ -1076,13 +1076,23 @@ offers are covered too.
             # CHF — mixing them turned a 6% trade into 0.13%.
             prem = (sell_price / (btc * spot_now) - 1) * 100 if (btc and spot_now) else 0
 
-        # sell_price_chf = buy_price_chf × (1 + premium%)
-        # Kauf und Verkauf laufen zum gleichen Spot-Preis; Käufer zahlt nur Premium mehr.
-        sell_price_chf = buy_price_chf * (1 + prem / 100)
+        # What the buyer ACTUALLY paid, converted to CHF.
+        #
+        # The old model assumed buy and sale happen at the same spot and booked
+        # buy_price × premium. But the marketplace prices a contract from its index AT THE
+        # MATCH, not when the offer was created — verified against its own contract data (a
+        # trade bought at 68,030 EUR/BTC sold against an index of 74,575 after waiting 74h,
+        # with the platform's premium matching ours exactly, so it was not a bookkeeping
+        # artefact). Support claims the price is locked from creation to sale; it is not. The
+        # move during the wait is real profit or loss: across 413 same-currency trades the
+        # model had left +615 EUR unbooked, with single trades between +84 and -26 EUR.
+        sell_currency = getattr(contract, "currency", currency)
+        fx_sell = 1.0 if sell_currency == "CHF" else _fx_to_chf(sell_currency)
+        sell_price_chf = sell_price * fx_sell
         fees_chf = efee_chf + withdrawal_fee + funding_fee
-
-        # Net profit = what premium earns minus all fees (in CHF)
-        net = buy_price_chf * (prem / 100) - fees_chf
+        net = sell_price_chf - buy_price_chf - fees_chf
+        # What the premium alone would have earned; the rest is the price move while waiting.
+        premium_only = buy_price_chf * (prem / 100) - fees_chf
 
         self.trade_logger.log_trade(
             platform=pname,
@@ -1098,7 +1108,9 @@ offers are covered too.
             withdrawal_fee=withdrawal_fee, funding_fee=funding_fee,
             spot_at_buy=spot_at_buy, spot_at_sell=spot_now)
         self.daily_volume_sats += contract.amount_sats
-        log.info(f"{pname}: COMPLETE {contract.id[:12]} profit={net:.2f} CHF (buy={buy_price:.2f} {buy_currency} prem={prem:.1f}% fees={fees_chf:.2f})")
+        log.info(f"{pname}: COMPLETE {contract.id[:12]} profit={net:.2f} CHF "
+                 f"(buy={buy_price:.2f} {buy_currency} sell={sell_price:.2f} {sell_currency} "
+                 f"prem={prem:.1f}% fees={fees_chf:.2f} price-move={net - premium_only:+.2f})")
     def get_status(self):
         uptime = datetime.now() - self._start_time
         h, m = divmod(int(uptime.total_seconds()) // 60, 60)
