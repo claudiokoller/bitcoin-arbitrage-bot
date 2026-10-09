@@ -193,13 +193,23 @@ class TelegramBot:
 
         return payment_data, sepa_info
 
-    @staticmethod
-    def _filter_payment_methods(payment_methods, exclude_methods):
-        """Remove excluded methods and drop currencies with no remaining methods."""
-        if not exclude_methods:
+    def _filter_payment_methods(self, payment_methods, exclude_methods):
+        """Remove excluded methods and drop currencies with no remaining methods.
+
+        The configured `auto_buy_escrow.exclude_methods` always applies on top of whatever the
+        caller passes: switching a method off has to mean off everywhere, not just for
+        auto-created offers. A caller's own list is added, never substituted, so a command that
+        excludes one method cannot silently re-enable another that was switched off.
+        """
+        try:
+            configured = (self.engine.config.get("auto_buy_escrow", {}) or {}).get("exclude_methods") or []
+        except Exception:
+            configured = []
+        excluded = set(exclude_methods or []) | set(configured)
+        if not excluded:
             return payment_methods
         filtered = {
-            cur: [m for m in methods if m not in exclude_methods]
+            cur: [m for m in methods if m not in excluded]
             for cur, methods in payment_methods.items()
         }
         return {cur: methods for cur, methods in filtered.items() if methods}
