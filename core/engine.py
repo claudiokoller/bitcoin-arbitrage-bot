@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 import requests as _requests
 from core.models import OfferStatus
+from core.fileutil import atomic_write_json
 from core.trade_logger import TradeLogger
 from core.pricing import DynamicPricer
 log = logging.getLogger("bot.engine")
@@ -160,6 +161,8 @@ class SpotPriceProvider:
 class TradingEngine:
     def __init__(self, config):
         self.config = config
+        self._config_path = os.path.join(os.path.dirname(__file__), "..", "config.json")
+        self._config_lock = threading.Lock()  # serializes config.json writes
         self.platforms = {}
         self.exchanges = {}
         self.trade_logger = TradeLogger(config.get("db_path","trades.db"))
@@ -253,6 +256,19 @@ class TradingEngine:
                 log.warning(f"reload_config: pricer reload: {e}")
 
         log.info("Config reloaded successfully")
+
+    def save_config(self):
+        """Persist the in-memory config to config.json atomically, under a lock.
+
+        Single source of truth — callers mutate self.config then call this. Avoids the
+        in-memory/disk divergence and format drift from ad-hoc writes (e.g. a premium set over
+        Telegram getting lost on restart), and writing the WHOLE config matters: the /auto
+        toggles touch both auto_buy_escrow and platforms.peach.sepa_accounts, so saving just one
+        section would silently drop the other. External edits to config.json must be followed by
+        reload_config() (e.g. via SIGHUP) so the in-memory copy stays authoritative.
+        """
+        with self._config_lock:
+            atomic_write_json(self._config_path, self.config, indent=2)
 
     def add_platform(self, p):
         self.platforms[p.name] = p

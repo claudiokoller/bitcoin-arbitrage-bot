@@ -1636,27 +1636,51 @@ class TelegramBot:
     def _auto_status_text_and_markup(self):
         cfg = self.engine.config.get("auto_buy_escrow", {})
         enabled = cfg.get("enabled", False)
-        mode = cfg.get("mode", "norev")
+        exclude = cfg.get("exclude_methods", [])
         status = "✅ Aktiv" if enabled else "⏸ Inaktiv"
-        mode_label = "Ohne Revolut" if mode == "norev" else "Mit Revolut"
         spacing = cfg.get("min_offer_interval_sec", 1800)
         spacing_txt = f"{spacing}s" if spacing < 120 else f"{spacing // 60}min"
         max_concurrent = cfg.get("max_concurrent_offers", 1)
         parallel_txt = "∞" if max_concurrent <= 0 else str(max_concurrent)
         premium = cfg.get("premium", 5.5)
+        pconf = self.engine.config.get("platforms", {}).get("peach", {})
+        accounts = pconf.get("sepa_accounts", [])
+        active_sepa = sum(1 for a in accounts if a.get("enabled", True))
+        # One toggle per payment method that is actually configured, rather than a fixed
+        # "with/without Revolut" mode: a method that is no longer offered would otherwise linger
+        # as a button that does nothing, and a newly added one would need a code change to
+        # become switchable. Same for the SEPA accounts — one toggle each, for the rotation.
+        labels = {"twint": "TWINT", "revolut": "Revolut", "wise": "Wise", "sepa": "SEPA",
+                  "instantSepa": "SEPA Instant", "skrill": "Skrill", "paysera": "Paysera",
+                  "n26": "N26", "mbWay": "MB Way", "bizum": "Bizum"}
+        methods = []
+        for _ms in (pconf.get("payment_methods") or {}).values():
+            for _m in _ms:
+                if _m not in methods:
+                    methods.append(_m)
+        methods_txt = " · ".join(f"{labels.get(m, m)} {'✅' if m not in exclude else '❌'}" for m in methods)
         text = (f"<b>Auto Buy-Escrow</b>\n"
                 f"Status: {status}\n"
-                f"Modus: {mode_label}\n"
+                f"Zahlarten: {methods_txt or '—'}\n"
+                f"SEPA-Banken in Rotation: {active_sepa}/{len(accounts)}\n"
                 f"Premium: {premium}% | Takt: {spacing_txt} | parallel: {parallel_txt}")
-        norev_mark = " ✓" if mode == "norev" else ""
-        withrev_mark = " ✓" if mode == "withrev" else ""
         toggle_label = "⏸ Deaktivieren" if enabled else "▶️ Aktivieren"
-        markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton(f"Ohne Revolut{norev_mark}", callback_data="auto_norev"),
-             InlineKeyboardButton(f"Mit Revolut{withrev_mark}", callback_data="auto_withrev")],
-            [InlineKeyboardButton(toggle_label, callback_data="auto_toggle")],
-        ])
-        return text, markup
+        def tog_btn(method, label):
+            on = method not in exclude
+            return InlineKeyboardButton(f"{label}: {'✅' if on else '❌'}", callback_data=f"auto_tog_{method}")
+        rows = []
+        _mbtns = [tog_btn(m, labels.get(m, m)) for m in methods]
+        for j in range(0, len(_mbtns), 2):
+            rows.append(_mbtns[j:j + 2])
+        sepa_btns = []
+        for i, a in enumerate(accounts):
+            on = a.get("enabled", True)
+            sepa_btns.append(InlineKeyboardButton(f"{a.get('name', '?')} {'✅' if on else '❌'}",
+                                                  callback_data=f"auto_sepa_{i}"))
+        for j in range(0, len(sepa_btns), 2):
+            rows.append(sepa_btns[j:j + 2])
+        rows.append([InlineKeyboardButton(toggle_label, callback_data="auto_toggle")])
+        return text, InlineKeyboardMarkup(rows)
 
     async def cmd_auto(self, update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         """Zeigt und steuert den Auto Buy-Escrow Modus. /auto [premium%] setzt das Standard-Premium."""
@@ -1690,23 +1714,32 @@ class TelegramBot:
 
     async def _handle_auto_callback(self, q):
         if not self.engine: return
-        cfg = self.engine.config.get("auto_buy_escrow", {})
-        if q.data == "auto_norev":
-            cfg["mode"] = "norev"
-        elif q.data == "auto_withrev":
-            cfg["mode"] = "withrev"
+        cfg = self.engine.config.setdefault("auto_buy_escrow", {})
+        if q.data.startswith("auto_tog_"):
+            method = q.data[len("auto_tog_"):]
+            exclude = list(cfg.get("exclude_methods", []))
+            if method in exclude:
+                exclude.remove(method)   # switch the method on
+            else:
+                exclude.append(method)   # switch it off
+            cfg["exclude_methods"] = exclude
+        elif q.data.startswith("auto_sepa_"):
+            # SEPA account in or out of the rotation (its `enabled` field)
+            try:
+                i = int(q.data[len("auto_sepa_"):])
+                accounts = self.engine.config.get("platforms", {}).get("peach", {}).get("sepa_accounts", [])
+                if 0 <= i < len(accounts):
+                    accounts[i]["enabled"] = not accounts[i].get("enabled", True)
+            except (ValueError, IndexError):
+                pass
         elif q.data == "auto_toggle":
             cfg["enabled"] = not cfg.get("enabled", False)
         self.engine.config["auto_buy_escrow"] = cfg
-        # Persist to config.json
+        # save_config writes the WHOLE config atomically. The previous version re-read the file
+        # and replaced only the auto_buy_escrow section, which would silently drop the SEPA
+        # account toggles — those live under platforms.peach.
         try:
-            import os as _os
-            config_path = _os.path.join(_os.path.dirname(__file__), "..", "config.json")
-            with open(config_path) as f:
-                disk_cfg = json.load(f)
-            disk_cfg["auto_buy_escrow"] = cfg
-            with open(config_path, "w") as f:
-                json.dump(disk_cfg, f, indent=2)
+            self.engine.save_config()
         except Exception as e:
             log.warning(f"auto callback: config save failed: {e}")
         text, markup = self._auto_status_text_and_markup()
