@@ -95,6 +95,7 @@ class PeachPlatform(PlatformBase):
         self.escrow_keys = {}
         self._contract_method_cache = LRUCache(100)  # {contract_id: payment_method}
         self._scan_cache = {}  # {"sell"|"buy": {"data": [...], "ts": float}}
+        self._unknown_status_seen = set()  # (status, contract_id) already warned about
         self._scan_cache_ttl = 60  # seconds
         self._escrow_status_cache = {}  # {offer_id: {"data": dict, "ts": float}}
         self._escrow_status_cache_ttl = 300  # 5 minutes
@@ -564,6 +565,12 @@ class PeachPlatform(PlatformBase):
             "canceledAfterPayment": OfferStatus.CANCELLED,
             "refundTxSignatureRequired": OfferStatus.CANCELLED,
             "refundOrReviveRequired": OfferStatus.CANCELLED,
+            # The buyer missed their payment window. Peach reports it on the summary while the
+            # contract detail still says paymentRequired or has already moved to tradeCanceled,
+            # so keep polling it like a live match and let the later status decide — that is
+            # also what the unknown-status fallback did, minus one warning per contract per tick
+            # (1284 lines from three contracts on 2026-10-12).
+            "paymentTooLate": OfferStatus.MATCHED,
         }
         for c in r.json():
             contract_id = c.get("id", c.get("contractId", ""))
@@ -583,7 +590,13 @@ class PeachPlatform(PlatformBase):
             status_str = c.get("tradeStatus", c.get("status", ""))
             mapped_status = sm.get(status_str)
             if mapped_status is None and status_str:
-                log.warning(f"Peach: unknown contract status '{status_str}' for {contract_id}")
+                # Once per status+contract, not once per tick: an unmapped status otherwise
+                # floods the journal for as long as the contract lives and pushes real history
+                # out (the journal holds only hours' worth).
+                _seen = self._unknown_status_seen
+                if (status_str, contract_id) not in _seen:
+                    _seen.add((status_str, contract_id))
+                    log.warning(f"Peach: unknown contract status '{status_str}' for {contract_id}")
                 mapped_status = OfferStatus.MATCHED
             contracts.append(Contract(
                 id=contract_id,

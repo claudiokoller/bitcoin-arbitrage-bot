@@ -33,6 +33,13 @@ import math
 # default: the real cap is `max_offer_chf`, and `max_offer_sats` overrides this.
 LEGACY_CAP_SATS = 800_000
 
+# Never size an offer at 100% of the cap. Peach checks the limit against its own price index, so
+# an offer sized exactly at our converted cap lands just above theirs and is rejected outright
+# (FORM_INVALID["amount"]). Measured 2026-10-12: 99.1% of the cap rejected, 97.9% accepted — and
+# 97.9% is what the rotation has been getting through daily. Every path that caps an amount has
+# to leave this margin, not just the rotation.
+CAP_HEADROOM = 0.98
+
 
 def resolve_cap_sats(auto_cfg, spot_chf=None):
     """Peach's per-offer cap expressed in sats at the current price.
@@ -59,7 +66,7 @@ def resolve_fractions(auto_cfg):
     raises the cap and `max_offer_chf` follows. It takes precedence over
     `cap_fractions`, which remains for hand-picked spreads.
     """
-    top = 0.98  # headroom for price movement between sizing and Peach's check
+    top = CAP_HEADROOM
     cap_chf = auto_cfg.get("max_offer_chf")
     floor_chf = auto_cfg.get("min_offer_chf")
     if cap_chf and floor_chf:
